@@ -18,10 +18,16 @@ SUPPORT.md
 THIRD_PARTY_NOTICES.md
 docs/architecture.md
 docs/configuration.md
+docs/durability.md
 docs/development.md
+docs/examples/durability.env.example
 docs/operations.md
 docs/provenance.md
 go.mod
+go.sum
+internal/durability/postgres/migrations/000001_durability_v1.up.sql
+internal/durability/postgres/migrations/README.md
+internal/durability/postgres/migrations/checksums.txt
 requirements-spec.txt
 scripts/validate-jsonschema.py
 spec/README.md

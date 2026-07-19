@@ -25,3 +25,16 @@ HOOKSHIP_READ_TIMEOUT=15s ./bin/hookshipd -check-config
 Binding a wildcard address is explicit. It should only be used behind a
 deployment boundary that supplies the network access controls and transport
 security appropriate to that environment.
+
+## Durability integration tests
+
+The durability repository is not wired into `hookshipd` in this phase, so
+there is no runtime database variable yet. Integration tests use only:
+
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `TEST_DATABASE_URL` | none | PostgreSQL 17+ connection URL for a disposable database; required only by `make test-integration` |
+
+See [`examples/durability.env.example`](examples/durability.env.example). The
+example contains no password. Supply test credentials through the local
+environment or CI secret/service configuration, never source control.

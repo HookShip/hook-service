@@ -3,9 +3,9 @@
 ## Purpose
 
 This repository is intended to become HookShip's portable outbound webhook
-delivery data plane. It currently provides a production-quality process
-boundary and a reviewed protocol boundary; delivery runtime work remains
-unimplemented.
+delivery data plane. It currently provides a process boundary, reviewed
+protocol boundary, and executable single-cell PostgreSQL durability model;
+public ingest and delivery runtime work remain unimplemented.
 
 ## Current components
 
@@ -14,6 +14,13 @@ hookshipctl ──HTTP diagnostics──> hookshipd
                                       │
                                       ├── /healthz
                                       └── /readyz
+
+future ingest/runtime ──pgx──> one PostgreSQL 17+ regional cell
+                               ├── idempotency + immutable ingest
+                               ├── encrypted payload metadata/ciphertext
+                               ├── immutable endpoint snapshots
+                               ├── delivery + lease-based dispatch jobs
+                               └── immutable attempts + metadata outbox
 ```
 
 - `cmd/hookshipd` owns process startup, signal handling, configuration, and
@@ -23,10 +30,16 @@ hookshipctl ──HTTP diagnostics──> hookshipd
 - `cmd/hookshipctl` and `internal/diagnostics` provide bounded local
   diagnostics and build metadata.
 - `internal/buildinfo` centralizes metadata injected at build time.
+- `internal/durability/postgres` owns forward-only migrations, migration
+  checksum enforcement, assignment-scoped persistence, atomic acceptance,
+  restart-readable object staging metadata, database-clock leases, fencing,
+  versioned stage-write attempt identities, payload-deletion recovery, and
+  retention transitions. It is not wired into `hookshipd` yet.
 
-There is intentionally no delivery request handler, work scheduler, retry
-engine, queue, persistence adapter, signing mechanism, tenant model, or cloud
-integration.
+There is intentionally no delivery request handler, outbound worker, signing
+runtime, control-plane client, object-store provider, or cloud integration.
+PostgreSQL jobs and outbox rows are the durable scheduling primitives, not an
+active worker implementation.
 
 ## Protocol channels
 
@@ -61,10 +74,14 @@ first-party adapter mapping is documented without importing private code in
 - The process does not log HTTP request bodies or webhook payloads.
 - Readiness becomes false before graceful shutdown begins.
 
-## Next gated phase
+## Durability boundary
 
-The next phase may implement the accepted ingest boundary and its durability
-model. Delivery workers, databases, runtime control-plane endpoints, and cloud
-integration are outside this specification change and require their own
-review. The gate and current status live in
-[`../spec/README.md`](../spec/README.md).
+The v1 persistence decision is documented in
+[`durability.md`](durability.md). Assignment-scoped composite foreign keys
+prevent cross-assignment lineage, and a deferred commit-barrier trigger
+requires committed payload, immutable ingest, delivery, and ready dispatch
+job state before an idempotency ledger can commit.
+
+The next phase may implement the authenticated event-ingest boundary against
+this transaction API. Outbound delivery workers, runtime control-plane
+endpoints, and cloud integration still require separate review.

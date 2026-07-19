@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci fmt fmt-check spec-validate test test-race validate vet
+.PHONY: all build check clean ci diff-check fmt fmt-check gitleaks migration-check spec-validate test test-integration test-race validate vet
 
 all: build
 
@@ -28,6 +28,11 @@ fmt-check:
 test:
 	$(GO) test ./...
 
+test-integration:
+	@test -n "$$TEST_DATABASE_URL" || \
+		{ echo "TEST_DATABASE_URL is required for make test-integration" >&2; exit 1; }
+	$(GO) test -count=1 -tags=integration ./internal/durability/postgres
+
 test-race:
 	$(GO) test -race ./...
 
@@ -40,7 +45,18 @@ validate:
 spec-validate:
 	$(GO) test -count=1 ./internal/specvalidation
 
-check: fmt-check validate spec-validate vet test test-race build
+migration-check:
+	$(GO) test -count=1 -run 'TestMigrationManifest' ./internal/durability/postgres
+
+diff-check:
+	git diff --check
+
+gitleaks:
+	@command -v gitleaks >/dev/null 2>&1 || \
+		{ echo "gitleaks is required for make gitleaks" >&2; exit 1; }
+	gitleaks detect --no-banner --redact --source .
+
+check: fmt-check validate spec-validate migration-check vet test test-race build diff-check
 
 ci: check
 

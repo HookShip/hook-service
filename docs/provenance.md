@@ -51,3 +51,15 @@ These are source-path and version citations only. No toolkit or private
 platform source is copied, vendored, translated, or introduced as a source,
 build, or runtime dependency. Compatibility is maintained through versioned
 wire contracts and independent fixtures.
+
+## PostgreSQL durability implementation
+
+The durability schema, migration runner, repository, and tests were
+independently authored for this repository from the reviewed HookShip v1
+protocol. No database or delivery implementation was copied from WAAS, the
+HookShip toolkit, or a private platform repository.
+
+The implementation uses `github.com/jackc/pgx/v5` v5.10.0 under the MIT
+License. Its module-selected transitive dependencies and licenses are recorded
+in [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). PostgreSQL is an
+external integration-test/runtime service, not vendored material.

@@ -14,16 +14,17 @@ The specification explicitly separates:
 Producer events are never represented as metadata observations. Adapter
 commands never carry producer event bodies.
 
-## Gate for implementation
+## Implementation status
 
-The v1 contract satisfies the protocol-definition gate. Runtime work remains
-blocked until an implementation review defines and tests:
+The v1 contract satisfies the protocol-definition gate. The repository now
+contains the reviewed PostgreSQL durability model for:
 
-1. the concrete persistence model and crash recovery;
-2. payload storage and deletion behavior;
-3. dispatch leasing, retry scheduling, and delivery attempt semantics;
-4. operational limits and capacity behavior;
-5. security review of the implementation.
+1. concrete persistence, idempotency, and pending recovery;
+2. encrypted payload storage metadata and deletion states;
+3. dispatch/outbox leasing, fencing, and immutable attempts.
 
-No runtime endpoint may claim conformance merely because these files exist.
-Run `make spec-validate` to validate the versioned artifacts.
+The public event-ingest handler, outbound delivery worker, cloud storage
+adapter, capacity claims, and implementation security review remain separate
+gates. No runtime endpoint may claim conformance merely because the protocol
+or persistence library exists. Run `make spec-validate` to validate the
+versioned artifacts and see [`../docs/durability.md`](../docs/durability.md).

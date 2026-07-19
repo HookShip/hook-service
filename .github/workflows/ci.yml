@@ -38,6 +38,39 @@ jobs:
       - name: Run repository checks
         run: make ci
 
+  postgres-integration:
+    name: PostgreSQL 17 integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        env:
+          POSTGRES_DB: hookship_test
+          POSTGRES_PASSWORD: hookship_test
+          POSTGRES_USER: hookship
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hookship -d hookship_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://hookship:hookship_test@127.0.0.1:5432/hookship_test?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Run migration and durability integration tests
+        run: make migration-check test-integration
+
   container:
     name: Container
     runs-on: ubuntu-latest
