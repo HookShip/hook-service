@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:spec:v1:schema:configuration-vectors",
+  "title": "HookShip v1 deterministic configuration signing vectors",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "canonicalization",
+    "publicTestKey",
+    "bundle",
+    "expectedCanonicalContent",
+    "expectedContentSha256",
+    "expectedSignatureMessage",
+    "mutations",
+    "integerBoundaryCases",
+    "fleetGenerationBoundaryCases"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "canonicalization": {
+      "const": "RFC8785"
+    },
+    "publicTestKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keyId",
+        "publicKeyBase64",
+        "notice"
+      ],
+      "properties": {
+        "keyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "publicKeyBase64": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "notice": {
+          "const": "PUBLIC NON-PRODUCTION TEST KEY"
+        }
+      }
+    },
+    "bundle": {
+      "$ref": "urn:hookship:spec:v1:schema:configuration-bundle"
+    },
+    "expectedCanonicalContent": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 1048576
+    },
+    "expectedContentSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "expectedSignatureMessage": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "mutations": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "jsonPointer",
+          "replacement",
+          "expectedFailure"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "jsonPointer": {
+            "type": "string",
+            "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$"
+          },
+          "replacement": {},
+          "expectedFailure": {
+            "type": "string",
+            "enum": [
+              "content_checksum",
+              "signature_encoding",
+              "signature"
+            ]
+          }
+        }
+      }
+    },
+    "integerBoundaryCases": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/integerBoundaryCase"
+      }
+    },
+    "fleetGenerationBoundaryCases": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "fixture",
+          "jsonPointer",
+          "value",
+          "valid"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "fixture": {
+            "const": "fleet-applied.json"
+          },
+          "jsonPointer": {
+            "type": "string",
+            "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$"
+          },
+          "value": {
+            "type": "integer"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "integerBoundaryCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "jsonPointer",
+        "value",
+        "valid"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "jsonPointer": {
+          "type": "string",
+          "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$"
+        },
+        "value": {
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

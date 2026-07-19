@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "ingestId": "ing_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+  "eventId": "evt_order_0001",
+  "eventType": "order.created",
+  "route": "orders.primary",
+  "contentType": "application/json",
+  "bodySha256": "2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3",
+  "acceptedAt": "2026-07-19T16:00:00Z",
+  "idempotencyExpiresAt": "2026-07-20T16:00:00Z",
+  "updatedAt": "2026-07-19T16:00:01Z",
+  "ingestState": "durable",
+  "idempotencyState": "committed",
+  "dispatchState": "queued"
+}

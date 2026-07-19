@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1",
+  "responses": [
+    {
+      "status": 400,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status400",
+      "body": {
+        "type": "urn:hookship:problem:malformed-request",
+        "title": "Malformed request",
+        "status": 400,
+        "detail": "The request is malformed.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WH",
+        "code": "malformed_request",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WH",
+        "retryable": false
+      }
+    },
+    {
+      "status": 401,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status401",
+      "body": {
+        "type": "urn:hookship:problem:authentication-failed",
+        "title": "Authentication failed",
+        "status": 401,
+        "detail": "The request could not be authenticated.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WJ",
+        "code": "authentication_failed",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WJ",
+        "retryable": false
+      }
+    },
+    {
+      "status": 403,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status403",
+      "body": {
+        "type": "urn:hookship:problem:assignment-forbidden",
+        "title": "Assignment forbidden",
+        "status": 403,
+        "detail": "The assignment does not authorize this ingest operation.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WK",
+        "code": "assignment_forbidden",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WK",
+        "retryable": false
+      }
+    },
+    {
+      "status": 404,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status404",
+      "body": {
+        "type": "urn:hookship:problem:ingest-not-found",
+        "title": "Ingest not found",
+        "status": 404,
+        "detail": "The ingest was not found.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WM",
+        "code": "ingest_not_found",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WM",
+        "retryable": false
+      }
+    },
+    {
+      "status": 409,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status409",
+      "body": {
+        "type": "urn:hookship:problem:idempotency-conflict",
+        "title": "Idempotency conflict",
+        "status": 409,
+        "detail": "The idempotency key was already accepted with a different body hash.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WN",
+        "code": "idempotency_conflict",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WN",
+        "retryable": false
+      }
+    },
+    {
+      "status": 413,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status413",
+      "body": {
+        "type": "urn:hookship:problem:payload-too-large",
+        "title": "Payload too large",
+        "status": 413,
+        "detail": "The event body exceeds the assignment limit.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WP",
+        "code": "payload_too_large",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WP",
+        "retryable": false
+      }
+    },
+    {
+      "status": 415,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status415",
+      "body": {
+        "type": "urn:hookship:problem:unsupported-content-encoding",
+        "title": "Unsupported content encoding",
+        "status": 415,
+        "detail": "Content encoding must be absent or identity.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WQ",
+        "code": "unsupported_content_encoding",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WQ",
+        "retryable": false
+      }
+    },
+    {
+      "status": 422,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status422",
+      "body": {
+        "type": "urn:hookship:problem:invalid-event",
+        "title": "Invalid event",
+        "status": 422,
+        "detail": "The event identifiers or route are invalid.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WR",
+        "code": "invalid_event",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WR",
+        "retryable": false
+      }
+    },
+    {
+      "status": 429,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status429",
+      "body": {
+        "type": "urn:hookship:problem:ingest-throttled",
+        "title": "Ingest throttled",
+        "status": 429,
+        "detail": "The assignment is temporarily throttled.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WS",
+        "code": "ingest_throttled",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WS",
+        "retryable": true
+      }
+    },
+    {
+      "status": 503,
+      "schemaRef": "urn:hookship:spec:v1:schema:problem-details#/$defs/status503",
+      "body": {
+        "type": "urn:hookship:problem:ingest-unavailable",
+        "title": "Ingest unavailable",
+        "status": 503,
+        "detail": "The complete durability barrier is temporarily unavailable.",
+        "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WT",
+        "code": "ingest_unavailable",
+        "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WT",
+        "retryable": true
+      }
+    }
+  ]
+}

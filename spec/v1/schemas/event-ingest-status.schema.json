@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:spec:v1:schema:event-ingest-status",
+  "title": "HookShip v1 payload-free event ingest status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "ingestId",
+    "eventId",
+    "eventType",
+    "route",
+    "contentType",
+    "bodySha256",
+    "acceptedAt",
+    "idempotencyExpiresAt",
+    "updatedAt",
+    "ingestState",
+    "idempotencyState",
+    "dispatchState"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "ingestId": {
+      "type": "string",
+      "pattern": "^ing_[A-Z0-9]{26}$"
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "route": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "contentType": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 255,
+      "pattern": "^[^\\r\\n]+$"
+    },
+    "bodySha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "acceptedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "idempotencyExpiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "ingestState": {
+      "const": "durable"
+    },
+    "idempotencyState": {
+      "const": "committed"
+    },
+    "dispatchState": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "claimed",
+        "completed",
+        "failed"
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1",
+  "format": "YYYY-MM-DDTHH:MM:SSZ",
+  "cases": [
+    {
+      "name": "whole-second UTC",
+      "value": "2026-07-19T16:00:00Z",
+      "valid": true
+    },
+    {
+      "name": "fractional seconds are forbidden",
+      "value": "2026-07-19T16:00:00.000Z",
+      "valid": false
+    },
+    {
+      "name": "numeric UTC offset is forbidden",
+      "value": "2026-07-19T16:00:00+00:00",
+      "valid": false
+    },
+    {
+      "name": "lowercase z is forbidden",
+      "value": "2026-07-19T16:00:00z",
+      "valid": false
+    },
+    {
+      "name": "seconds are required",
+      "value": "2026-07-19T16:00Z",
+      "valid": false
+    },
+    {
+      "name": "calendar validity is required",
+      "value": "2026-02-30T16:00:00Z",
+      "valid": false
+    }
+  ]
+}

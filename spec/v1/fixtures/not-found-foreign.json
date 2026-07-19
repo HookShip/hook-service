@@ -1,0 +1,10 @@
+{
+  "type": "urn:hookship:problem:ingest-not-found",
+  "title": "Ingest not found",
+  "status": 404,
+  "detail": "The ingest was not found.",
+  "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WG",
+  "code": "ingest_not_found",
+  "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WG",
+  "retryable": false
+}

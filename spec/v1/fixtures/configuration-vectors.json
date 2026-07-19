@@ -1,0 +1,249 @@
+{
+  "schemaVersion": "1",
+  "canonicalization": "RFC8785",
+  "publicTestKey": {
+    "keyId": "config-signing-test-01",
+    "publicKeyBase64": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+    "notice": "PUBLIC NON-PRODUCTION TEST KEY"
+  },
+  "bundle": {
+    "kind": "configuration_bundle",
+    "schemaVersion": "1",
+    "bundleId": "cfg_01J4M6Y7N8P9Q0R1S2T3U4V5WB",
+    "generation": 7,
+    "contentChecksum": "af7797ecbff5764aee7c98616ae73adfc13420990346845cda72d484a0e8c0ad",
+    "content": {
+      "assignment": {
+        "assignmentId": "asg_test_01",
+        "adapterId": "hookship",
+        "tenantRef": "tenant_test_01",
+        "environmentRef": "env_test_01",
+        "producerIds": [
+          "producer_test_01"
+        ]
+      },
+      "endpoints": [
+        {
+          "endpointId": "endpoint_test_01",
+          "url": "https://127.0.0.1:9443/hooks/orders",
+          "signingSecretId": "secret_test_01"
+        }
+      ],
+      "subscriptions": [
+        {
+          "subscriptionId": "subscription_test_01",
+          "route": "orders.primary",
+          "eventTypes": [
+            "order.created"
+          ],
+          "endpointId": "endpoint_test_01",
+          "retryPolicyId": "retry_test_01",
+          "throttlePolicyId": "throttle_test_01",
+          "payloadPolicyId": "payload_test_01"
+        }
+      ],
+      "retryPolicies": [
+        {
+          "retryPolicyId": "retry_test_01",
+          "maxAttempts": 5,
+          "initialDelaySeconds": 10,
+          "maxDelaySeconds": 300,
+          "backoff": "exponential"
+        }
+      ],
+      "throttlePolicies": [
+        {
+          "throttlePolicyId": "throttle_test_01",
+          "maxInFlight": 8,
+          "requestsPerSecond": 20
+        }
+      ],
+      "payloadPolicies": [
+        {
+          "payloadPolicyId": "payload_test_01",
+          "maxBodyBytes": 1048576,
+          "retentionSeconds": 86400
+        }
+      ],
+      "sealedSecrets": [
+        {
+          "secretId": "secret_test_01",
+          "algorithm": "sealed-envelope-v1",
+          "keyId": "decrypt_test_01",
+          "keyVersion": "1",
+          "ciphertextBase64": "cHVibGljIG5vbi1wcm9kdWN0aW9uIHNlYWxlZCBmaXh0dXJlIGJ5dGVz",
+          "ciphertextSha256": "e7bd0d69bda87a3355903a380e6606a5e9037b4de497ddbc71f05979f28e59e4"
+        }
+      ],
+      "protocolVersions": {
+        "eventIngest": "1",
+        "adapterCommand": "2026-07-01",
+        "canonicalMetadata": "2026-07-01",
+        "metadataIngest": "2026-07-01"
+      }
+    },
+    "signature": {
+      "algorithm": "Ed25519",
+      "keyId": "config-signing-test-01",
+      "signedAt": "2026-07-19T16:05:00Z",
+      "value": "P8E1H18fYZT2a56wHiKTYCVTR4W_Mf9-orlS5hStjxo-VGyUhw4kos55glzAWWkTmfSYlmqm_8oXcb_WlDNnBg"
+    }
+  },
+  "expectedCanonicalContent": "{\"assignment\":{\"adapterId\":\"hookship\",\"assignmentId\":\"asg_test_01\",\"environmentRef\":\"env_test_01\",\"producerIds\":[\"producer_test_01\"],\"tenantRef\":\"tenant_test_01\"},\"endpoints\":[{\"endpointId\":\"endpoint_test_01\",\"signingSecretId\":\"secret_test_01\",\"url\":\"https://127.0.0.1:9443/hooks/orders\"}],\"payloadPolicies\":[{\"maxBodyBytes\":1048576,\"payloadPolicyId\":\"payload_test_01\",\"retentionSeconds\":86400}],\"protocolVersions\":{\"adapterCommand\":\"2026-07-01\",\"canonicalMetadata\":\"2026-07-01\",\"eventIngest\":\"1\",\"metadataIngest\":\"2026-07-01\"},\"retryPolicies\":[{\"backoff\":\"exponential\",\"initialDelaySeconds\":10,\"maxAttempts\":5,\"maxDelaySeconds\":300,\"retryPolicyId\":\"retry_test_01\"}],\"sealedSecrets\":[{\"algorithm\":\"sealed-envelope-v1\",\"ciphertextBase64\":\"cHVibGljIG5vbi1wcm9kdWN0aW9uIHNlYWxlZCBmaXh0dXJlIGJ5dGVz\",\"ciphertextSha256\":\"e7bd0d69bda87a3355903a380e6606a5e9037b4de497ddbc71f05979f28e59e4\",\"keyId\":\"decrypt_test_01\",\"keyVersion\":\"1\",\"secretId\":\"secret_test_01\"}],\"subscriptions\":[{\"endpointId\":\"endpoint_test_01\",\"eventTypes\":[\"order.created\"],\"payloadPolicyId\":\"payload_test_01\",\"retryPolicyId\":\"retry_test_01\",\"route\":\"orders.primary\",\"subscriptionId\":\"subscription_test_01\",\"throttlePolicyId\":\"throttle_test_01\"}],\"throttlePolicies\":[{\"maxInFlight\":8,\"requestsPerSecond\":20,\"throttlePolicyId\":\"throttle_test_01\"}]}",
+  "expectedContentSha256": "af7797ecbff5764aee7c98616ae73adfc13420990346845cda72d484a0e8c0ad",
+  "expectedSignatureMessage": "hookship-configuration-bundle-v1\nschema-version:1\nbundle-id:cfg_01J4M6Y7N8P9Q0R1S2T3U4V5WB\ngeneration:7\ncontent-sha256:af7797ecbff5764aee7c98616ae73adfc13420990346845cda72d484a0e8c0ad\nkey-id:config-signing-test-01\nsigned-at:2026-07-19T16:05:00Z",
+  "mutations": [
+    {
+      "name": "endpoint mutation invalidates the content checksum",
+      "jsonPointer": "/content/endpoints/0/url",
+      "replacement": "https://127.0.0.1:9555/hooks/orders",
+      "expectedFailure": "content_checksum"
+    },
+    {
+      "name": "generation mutation invalidates the signature",
+      "jsonPointer": "/generation",
+      "replacement": 8,
+      "expectedFailure": "signature"
+    },
+    {
+      "name": "signature timestamp mutation invalidates the signature",
+      "jsonPointer": "/signature/signedAt",
+      "replacement": "2026-07-19T16:05:01Z",
+      "expectedFailure": "signature"
+    },
+    {
+      "name": "non-canonical signature alias is rejected",
+      "jsonPointer": "/signature/value",
+      "replacement": "P8E1H18fYZT2a56wHiKTYCVTR4W_Mf9-orlS5hStjxo-VGyUhw4kos55glzAWWkTmfSYlmqm_8oXcb_WlDNnBh",
+      "expectedFailure": "signature_encoding"
+    }
+  ],
+  "integerBoundaryCases": [
+    {
+      "name": "generation maximum safe integer",
+      "jsonPointer": "/generation",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "generation overflow",
+      "jsonPointer": "/generation",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "max attempts maximum safe integer",
+      "jsonPointer": "/content/retryPolicies/0/maxAttempts",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "max attempts overflow",
+      "jsonPointer": "/content/retryPolicies/0/maxAttempts",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "initial delay maximum safe integer",
+      "jsonPointer": "/content/retryPolicies/0/initialDelaySeconds",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "initial delay overflow",
+      "jsonPointer": "/content/retryPolicies/0/initialDelaySeconds",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "maximum delay maximum safe integer",
+      "jsonPointer": "/content/retryPolicies/0/maxDelaySeconds",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "maximum delay overflow",
+      "jsonPointer": "/content/retryPolicies/0/maxDelaySeconds",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "max in flight maximum safe integer",
+      "jsonPointer": "/content/throttlePolicies/0/maxInFlight",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "max in flight overflow",
+      "jsonPointer": "/content/throttlePolicies/0/maxInFlight",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "requests per second maximum safe integer",
+      "jsonPointer": "/content/throttlePolicies/0/requestsPerSecond",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "requests per second overflow",
+      "jsonPointer": "/content/throttlePolicies/0/requestsPerSecond",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "max body bytes maximum safe integer",
+      "jsonPointer": "/content/payloadPolicies/0/maxBodyBytes",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "max body bytes overflow",
+      "jsonPointer": "/content/payloadPolicies/0/maxBodyBytes",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "retention seconds maximum safe integer",
+      "jsonPointer": "/content/payloadPolicies/0/retentionSeconds",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "retention seconds overflow",
+      "jsonPointer": "/content/payloadPolicies/0/retentionSeconds",
+      "value": 9007199254740992,
+      "valid": false
+    }
+  ],
+  "fleetGenerationBoundaryCases": [
+    {
+      "name": "candidate generation maximum safe integer",
+      "fixture": "fleet-applied.json",
+      "jsonPointer": "/candidate/generation",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "candidate generation overflow",
+      "fixture": "fleet-applied.json",
+      "jsonPointer": "/candidate/generation",
+      "value": 9007199254740992,
+      "valid": false
+    },
+    {
+      "name": "last-known-good generation maximum safe integer",
+      "fixture": "fleet-applied.json",
+      "jsonPointer": "/application/lastKnownGood/generation",
+      "value": 9007199254740991,
+      "valid": true
+    },
+    {
+      "name": "last-known-good generation overflow",
+      "fixture": "fleet-applied.json",
+      "jsonPointer": "/application/lastKnownGood/generation",
+      "value": 9007199254740992,
+      "valid": false
+    }
+  ]
+}

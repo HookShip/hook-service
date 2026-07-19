@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:spec:v1:schema:problem-details",
+  "title": "HookShip v1 bounded RFC 9457 problem details",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/status400"
+    },
+    {
+      "$ref": "#/$defs/status401"
+    },
+    {
+      "$ref": "#/$defs/status403"
+    },
+    {
+      "$ref": "#/$defs/status404"
+    },
+    {
+      "$ref": "#/$defs/status409"
+    },
+    {
+      "$ref": "#/$defs/status413"
+    },
+    {
+      "$ref": "#/$defs/status415"
+    },
+    {
+      "$ref": "#/$defs/status422"
+    },
+    {
+      "$ref": "#/$defs/status429"
+    },
+    {
+      "$ref": "#/$defs/status503"
+    }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "code",
+        "requestId",
+        "retryable"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "format": "uri-reference"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "instance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "format": "uri-reference"
+        },
+        "code": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string",
+          "pattern": "^req_[A-Z0-9]{26}$"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "malformedRequest": {
+      "properties": {
+        "code": {
+          "const": "malformed_request"
+        },
+        "status": {
+          "const": 400
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "authenticationFailed": {
+      "properties": {
+        "code": {
+          "const": "authentication_failed"
+        },
+        "status": {
+          "const": 401
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "assignmentForbidden": {
+      "properties": {
+        "code": {
+          "const": "assignment_forbidden"
+        },
+        "status": {
+          "const": 403
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "ingestNotFound": {
+      "properties": {
+        "type": {
+          "const": "urn:hookship:problem:ingest-not-found"
+        },
+        "title": {
+          "const": "Ingest not found"
+        },
+        "detail": {
+          "const": "The ingest was not found."
+        },
+        "code": {
+          "const": "ingest_not_found"
+        },
+        "status": {
+          "const": 404
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "replayDetected": {
+      "properties": {
+        "code": {
+          "const": "replay_detected"
+        },
+        "status": {
+          "const": 409
+        },
+        "retryable": {
+          "const": true
+        }
+      }
+    },
+    "idempotencyConflict": {
+      "properties": {
+        "code": {
+          "const": "idempotency_conflict"
+        },
+        "status": {
+          "const": 409
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "idempotencyMetadataConflict": {
+      "properties": {
+        "code": {
+          "const": "idempotency_metadata_conflict"
+        },
+        "status": {
+          "const": 409
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "idempotencyExpired": {
+      "properties": {
+        "code": {
+          "const": "idempotency_expired"
+        },
+        "status": {
+          "const": 409
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "payloadTooLarge": {
+      "properties": {
+        "code": {
+          "const": "payload_too_large"
+        },
+        "status": {
+          "const": 413
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "unsupportedContentEncoding": {
+      "properties": {
+        "code": {
+          "const": "unsupported_content_encoding"
+        },
+        "status": {
+          "const": 415
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "bodyHashMismatch": {
+      "properties": {
+        "code": {
+          "const": "body_hash_mismatch"
+        },
+        "status": {
+          "const": 422
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "invalidEvent": {
+      "properties": {
+        "code": {
+          "const": "invalid_event"
+        },
+        "status": {
+          "const": 422
+        },
+        "retryable": {
+          "const": false
+        }
+      }
+    },
+    "ingestThrottled": {
+      "properties": {
+        "code": {
+          "const": "ingest_throttled"
+        },
+        "status": {
+          "const": 429
+        },
+        "retryable": {
+          "const": true
+        }
+      }
+    },
+    "ingestUnavailable": {
+      "properties": {
+        "code": {
+          "const": "ingest_unavailable"
+        },
+        "status": {
+          "const": 503
+        },
+        "retryable": {
+          "const": true
+        }
+      }
+    },
+    "status400": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/malformedRequest"
+        }
+      ]
+    },
+    "status401": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/authenticationFailed"
+        }
+      ]
+    },
+    "status403": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/assignmentForbidden"
+        }
+      ]
+    },
+    "status404": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/ingestNotFound"
+        }
+      ]
+    },
+    "status409": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/replayDetected"
+            },
+            {
+              "$ref": "#/$defs/idempotencyConflict"
+            },
+            {
+              "$ref": "#/$defs/idempotencyMetadataConflict"
+            },
+            {
+              "$ref": "#/$defs/idempotencyExpired"
+            }
+          ]
+        }
+      ]
+    },
+    "status413": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/payloadTooLarge"
+        }
+      ]
+    },
+    "status415": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/unsupportedContentEncoding"
+        }
+      ]
+    },
+    "status422": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/bodyHashMismatch"
+            },
+            {
+              "$ref": "#/$defs/invalidEvent"
+            }
+          ]
+        }
+      ]
+    },
+    "status429": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/ingestThrottled"
+        }
+      ]
+    },
+    "status503": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "$ref": "#/$defs/ingestUnavailable"
+        }
+      ]
+    }
+  }
+}

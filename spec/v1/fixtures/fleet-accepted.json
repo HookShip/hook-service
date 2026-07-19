@@ -1,0 +1,48 @@
+{
+  "kind": "fleet_registration",
+  "schemaVersion": "1",
+  "fleetMemberId": "flt_01J4M6Y7N8P9Q0R1S2T3U4V5WC",
+  "assignmentId": "asg_test_01",
+  "registrationNonce": "ZmxlZXQtdGVzdC1ub25jZS0wMQ",
+  "authenticatedIdentity": {
+    "kind": "mtls",
+    "certificateSha256": "03d66dd08835c1ca3f128cceacd1f31ac94163096b20f445ae84285bc0832d72",
+    "subject": "fleet-test-member"
+  },
+  "supportedVersions": {
+    "configurationBundle": [
+      "1"
+    ],
+    "eventIngest": [
+      "1"
+    ],
+    "adapterCommand": [
+      "2026-07-01"
+    ],
+    "canonicalMetadata": [
+      "2026-07-01"
+    ],
+    "metadataIngest": [
+      "2026-07-01"
+    ]
+  },
+  "candidate": {
+    "bundleId": "cfg_01J4M6Y7N8P9Q0R1S2T3U4V5WB",
+    "bundleSchemaVersion": "1",
+    "generation": 7,
+    "contentChecksum": "af7797ecbff5764aee7c98616ae73adfc13420990346845cda72d484a0e8c0ad",
+    "compatibilityAcknowledgedAt": "2026-07-19T16:05:01Z"
+  },
+  "application": {
+    "state": "accepted",
+    "acceptedAt": "2026-07-19T16:05:02Z",
+    "lastKnownGood": {
+      "bundleId": "cfg_01J4M6Y7N8P9Q0R1S2T3U4V5WE",
+      "generation": 6,
+      "contentChecksum": "1dcaf1234b3749710bc6d5b7f14cf271bf082851ad6582334b28d5970df08be0",
+      "materializationChecksum": "396d5d1c7e635f90ad0ea2748584214a20b5d61074b1cd08be3b3dff02653936",
+      "appliedAt": "2026-07-18T16:05:00Z"
+    }
+  },
+  "observedAt": "2026-07-19T16:05:02Z"
+}

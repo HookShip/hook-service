@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:spec:v1:schema:event-ingest-receipt",
+  "title": "HookShip v1 event ingest receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "ingestId",
+    "eventId",
+    "eventType",
+    "route",
+    "contentType",
+    "bodySha256",
+    "acceptedAt",
+    "idempotencyExpiresAt",
+    "idempotencyState",
+    "state",
+    "duplicate",
+    "statusPath"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "ingestId": {
+      "type": "string",
+      "pattern": "^ing_[A-Z0-9]{26}$"
+    },
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "eventType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "route": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "contentType": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 255,
+      "pattern": "^[^\\r\\n]+$"
+    },
+    "bodySha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "acceptedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "idempotencyExpiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "idempotencyState": {
+      "const": "committed"
+    },
+    "state": {
+      "const": "durable"
+    },
+    "duplicate": {
+      "type": "boolean"
+    },
+    "statusPath": {
+      "type": "string",
+      "pattern": "^/v1/event-ingests/ing_[A-Z0-9]{26}$"
+    }
+  }
+}

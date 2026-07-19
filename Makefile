@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci fmt fmt-check test test-race validate vet
+.PHONY: all build check clean ci fmt fmt-check spec-validate test test-race validate vet
 
 all: build
 
@@ -37,7 +37,10 @@ vet:
 validate:
 	./scripts/validate-repo.sh
 
-check: fmt-check validate vet test test-race build
+spec-validate:
+	$(GO) test -count=1 ./internal/specvalidation
+
+check: fmt-check validate spec-validate vet test test-race build
 
 ci: check
 

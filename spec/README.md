@@ -1,29 +1,29 @@
-# HookShip delivery specifications
+# HookShip protocol specifications
 
 ## Status
 
-No public webhook delivery protocol or durability contract is defined in this
-initial repository. This directory is a deliberate gate, not an undocumented
-API placeholder.
+The first reviewed protocol specification is versioned under [`v1/`](v1/).
+It defines contracts and acceptance criteria, not a running API.
 
-The next phase must specify and review the protocol and durability boundaries
-before implementation. That work should define only behavior supported by
-explicit use cases and testable failure semantics. It must not be inferred
-from the operational health endpoints or from external reference
-implementations.
+The specification explicitly separates:
 
-Candidate concerns may be admitted to the specification process only when
-requirements exist for them. This repository does not currently choose wire
-formats, delivery submission APIs, persistence guarantees, retry behavior,
-ordering behavior, idempotency behavior, signing behavior, or tenant
-boundaries.
+1. toolkit `adapter_command` control-plane commands;
+2. producer `event_ingest` v1 requests containing exact raw event bodies;
+3. toolkit `metadata_ingest` payload-free delivery observations.
+
+Producer events are never represented as metadata observations. Adapter
+commands never carry producer event bodies.
 
 ## Gate for implementation
 
-Delivery implementation may begin only after:
+The v1 contract satisfies the protocol-definition gate. Runtime work remains
+blocked until an implementation review defines and tests:
 
-1. scope and non-goals are reviewed;
-2. protocol and durability decisions are documented;
-3. compatibility and failure behavior have executable acceptance criteria;
-4. security and sensitive-data handling are reviewed;
-5. provenance remains explicit for any external reference material.
+1. the concrete persistence model and crash recovery;
+2. payload storage and deletion behavior;
+3. dispatch leasing, retry scheduling, and delivery attempt semantics;
+4. operational limits and capacity behavior;
+5. security review of the implementation.
+
+No runtime endpoint may claim conformance merely because these files exist.
+Run `make spec-validate` to validate the versioned artifacts.

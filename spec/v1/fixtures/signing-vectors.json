@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1",
+  "algorithm": "hmac-sha256",
+  "vectors": [
+    {
+      "name": "accepted raw JSON body with trailing LF",
+      "secretHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request": {
+        "method": "POST",
+        "path": "/v1/event-ingests",
+        "credentialId": "cred_test_01",
+        "timestamp": "2026-07-19T16:00:00Z",
+        "nonce": "bm9uY2UtdGVzdC0wMDAx",
+        "idempotencyKey": "order-create-0001",
+        "eventId": "evt_order_0001",
+        "eventType": "order.created",
+        "route": "orders.primary",
+        "contentType": "application/json",
+        "bodyBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9Cg==",
+        "bodySha256": "2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3"
+      },
+      "expectedCanonical": "hookship-hmac-sha256-v1\nmethod:POST\npath:/v1/event-ingests\ncredential-id:cred_test_01\ntimestamp:2026-07-19T16:00:00Z\nnonce:bm9uY2UtdGVzdC0wMDAx\nidempotency-key:order-create-0001\nevent-id:evt_order_0001\nevent-type:order.created\nroute:orders.primary\ncontent-type:application/json\nbody-sha256:2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3",
+      "expectedSignature": "lAaAdzTJfPJSb2EO_3oGM0ykD3OXt7dr0MEZk8NrfrM"
+    },
+    {
+      "name": "duplicate retry uses a fresh nonce",
+      "secretHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request": {
+        "method": "POST",
+        "path": "/v1/event-ingests",
+        "credentialId": "cred_test_01",
+        "timestamp": "2026-07-19T16:00:05Z",
+        "nonce": "bm9uY2UtdGVzdC0wMDAy",
+        "idempotencyKey": "order-create-0001",
+        "eventId": "evt_order_0001",
+        "eventType": "order.created",
+        "route": "orders.primary",
+        "contentType": "application/json",
+        "bodyBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9Cg==",
+        "bodySha256": "2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3"
+      },
+      "expectedCanonical": "hookship-hmac-sha256-v1\nmethod:POST\npath:/v1/event-ingests\ncredential-id:cred_test_01\ntimestamp:2026-07-19T16:00:05Z\nnonce:bm9uY2UtdGVzdC0wMDAy\nidempotency-key:order-create-0001\nevent-id:evt_order_0001\nevent-type:order.created\nroute:orders.primary\ncontent-type:application/json\nbody-sha256:2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3",
+      "expectedSignature": "dkpeIuSs6lsvQwEgQqLXra2bGeXwrn_vmDY9Zbs_G9A"
+    },
+    {
+      "name": "same idempotency key with different raw body",
+      "secretHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request": {
+        "method": "POST",
+        "path": "/v1/event-ingests",
+        "credentialId": "cred_test_01",
+        "timestamp": "2026-07-19T16:00:10Z",
+        "nonce": "bm9uY2UtdGVzdC0wMDQw",
+        "idempotencyKey": "order-create-0001",
+        "eventId": "evt_order_0001",
+        "eventType": "order.created",
+        "route": "orders.primary",
+        "contentType": "application/json",
+        "bodyBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTF9Cg==",
+        "bodySha256": "76c8bbf39dd8e6850ddd172b857bf2deddbc67f4889e94da540a17514bffc5ef"
+      },
+      "expectedCanonical": "hookship-hmac-sha256-v1\nmethod:POST\npath:/v1/event-ingests\ncredential-id:cred_test_01\ntimestamp:2026-07-19T16:00:10Z\nnonce:bm9uY2UtdGVzdC0wMDQw\nidempotency-key:order-create-0001\nevent-id:evt_order_0001\nevent-type:order.created\nroute:orders.primary\ncontent-type:application/json\nbody-sha256:76c8bbf39dd8e6850ddd172b857bf2deddbc67f4889e94da540a17514bffc5ef",
+      "expectedSignature": "UWQeCbkXvWFeSIic0MXErLzGqPUg3yfCpOWarGCYaJ0"
+    },
+    {
+      "name": "payload-free status GET",
+      "secretHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "request": {
+        "method": "GET",
+        "path": "/v1/event-ingests/ing_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+        "credentialId": "cred_test_01",
+        "timestamp": "2026-07-19T16:01:00Z",
+        "nonce": "bm9uY2UtdGVzdC0wMDAz",
+        "idempotencyKey": "",
+        "eventId": "",
+        "eventType": "",
+        "route": "",
+        "contentType": "",
+        "bodyBase64": "",
+        "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "expectedCanonical": "hookship-hmac-sha256-v1\nmethod:GET\npath:/v1/event-ingests/ing_01J4M6Y7N8P9Q0R1S2T3U4V5W6\ncredential-id:cred_test_01\ntimestamp:2026-07-19T16:01:00Z\nnonce:bm9uY2UtdGVzdC0wMDAz\nidempotency-key:\nevent-id:\nevent-type:\nroute:\ncontent-type:\nbody-sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expectedSignature": "whFI-KMocJFYYGYl5pZkWgM2OOQ7i0g-tF_5bdaaGoA"
+    }
+  ],
+  "signatureEncodingCases": [
+    {
+      "name": "canonical HMAC-SHA256 signature",
+      "value": "lAaAdzTJfPJSb2EO_3oGM0ykD3OXt7dr0MEZk8NrfrM",
+      "valid": true
+    },
+    {
+      "name": "non-canonical trailing-bit alias",
+      "value": "lAaAdzTJfPJSb2EO_3oGM0ykD3OXt7dr0MEZk8NrfrN",
+      "valid": false
+    }
+  ]
+}

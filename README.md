@@ -1,13 +1,12 @@
 # HookShip delivery service
 
 `hook-service` is the portable outbound webhook delivery data-plane foundation
-for HookShip. This repository currently establishes the process, operational,
-build, and project-quality boundaries needed before delivery semantics are
-implemented.
+for HookShip. This repository establishes the process, operational, build, and
+protocol boundaries needed before delivery semantics are implemented.
 
-> **Status:** foundation only. There is no webhook delivery implementation,
-> queue, durability layer, database, signing system, cloud integration, or
-> public delivery protocol in this repository yet.
+> **Status:** foundation plus a reviewed v1 protocol specification. There is no
+> webhook delivery implementation, queue, durability layer, database, signing
+> runtime, cloud integration, or delivery worker in this repository yet.
 
 ## Current surface
 
@@ -18,6 +17,9 @@ implemented.
   diagnostics.
 - Reproducible build metadata, tests, container packaging, CI, and public
   project documentation.
+- `spec/v1`: the source-of-truth contract for producer event ingestion,
+  payload-free status, signing, errors, compatibility, and future
+  configuration/fleet boundaries.
 
 The operational endpoints are:
 
@@ -59,11 +61,12 @@ the listener must define a matching probe.
   dependencies.
 - No request or payload logging.
 - No implicit public network exposure.
-- No unreviewed delivery API or durability behavior.
+- No runtime delivery or persistence behavior before its separately reviewed
+  implementation phase.
 - No availability, throughput, or service-level claims.
 
-Protocol and durability work is the next gated phase. See
-[`spec/README.md`](spec/README.md) and
+The protocol is specified, but runtime durability and delivery remain gated.
+See [`spec/README.md`](spec/README.md), [`spec/v1/`](spec/v1/), and
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Documentation

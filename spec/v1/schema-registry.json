@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1",
+  "dialect": "https://json-schema.org/draft/2020-12/schema",
+  "resources": [
+    {
+      "id": "urn:hookship:spec:v1:schema:configuration-bundle",
+      "path": "schemas/configuration-bundle.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:configuration-vectors",
+      "path": "schemas/configuration-vectors.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:event-ingest-receipt",
+      "path": "schemas/event-ingest-receipt.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:event-ingest-status",
+      "path": "schemas/event-ingest-status.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:fleet-registration",
+      "path": "schemas/fleet-registration.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:golden-http-outcome",
+      "path": "schemas/golden-http-outcome.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:problem-details",
+      "path": "schemas/problem-details.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:problem-response-vectors",
+      "path": "schemas/problem-response-vectors.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:signing-vectors",
+      "path": "schemas/signing-vectors.schema.json"
+    },
+    {
+      "id": "urn:hookship:spec:v1:schema:timestamp-vectors",
+      "path": "schemas/timestamp-vectors.schema.json"
+    }
+  ]
+}

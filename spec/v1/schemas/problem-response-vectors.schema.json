@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:spec:v1:schema:problem-response-vectors",
+  "title": "HookShip v1 OpenAPI problem response vectors",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "responses"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1"
+    },
+    "responses": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "schemaRef",
+          "body"
+        ],
+        "properties": {
+          "status": {
+            "type": "integer",
+            "enum": [
+              400,
+              401,
+              403,
+              404,
+              409,
+              413,
+              415,
+              422,
+              429,
+              503
+            ]
+          },
+          "schemaRef": {
+            "type": "string",
+            "pattern": "^urn:hookship:spec:v1:schema:problem-details#/\\$defs/status(400|401|403|404|409|413|415|422|429|503)$"
+          },
+          "body": {
+            "$ref": "urn:hookship:spec:v1:schema:problem-details"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,546 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HookShip event ingest API",
+    "version": "1.0.0",
+    "summary": "Raw-payload producer event acceptance and payload-free status",
+    "description": "This API is the producer event_ingest channel. It is distinct from toolkit adapter_command control-plane commands and payload-free metadata_ingest observations. Non-loopback requests MUST use HTTPS with TLS 1.2 or newer, TLS 1.3 SHOULD be preferred, and redirects MUST NOT be followed."
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "x-hookship-schema-registry": "schema-registry.json",
+  "servers": [
+    {
+      "url": "https://{authority}",
+      "description": "Deployment-supplied HTTPS authority. No production domain is implied.",
+      "variables": {
+        "authority": {
+          "default": "localhost",
+          "description": "The deployment authority. Non-loopback operation requires TLS 1.2 or newer."
+        }
+      }
+    }
+  ],
+  "x-hookship-transport-security": {
+    "nonLoopbackScheme": "https",
+    "minimumTlsVersion": "1.2",
+    "preferredTlsVersion": "1.3",
+    "redirectPolicy": "forbid",
+    "loopbackHttp": {
+      "mode": "explicit-non-production-evaluation-only",
+      "credentialScope": "non-production-only",
+      "forwarding": "forbidden"
+    }
+  },
+  "paths": {
+    "/v1/event-ingests": {
+      "post": {
+        "operationId": "createEventIngest",
+        "summary": "Durably accept an exact raw producer event body",
+        "description": "HTTPS with TLS 1.2 or newer is mandatory outside explicit loopback evaluation mode. Tenant, environment, and producer identity are derived from the verified scoped credential assignment. HTTP 202 is returned only after the ingest record, committed idempotency ledger, exact payload commit, and dispatch job are durable. Redirects are forbidden.",
+        "security": [
+          {
+            "HookshipHMAC": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/BodySha256"
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/EventId"
+          },
+          {
+            "$ref": "#/components/parameters/EventType"
+          },
+          {
+            "$ref": "#/components/parameters/Route"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Exact entity-body bytes. Content-Type is required and signed. Content-Encoding must be absent or identity.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "A new ingest crossed the durability acknowledgement barrier.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "Hookship-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Hookship-Ingest-Id": {
+                "$ref": "#/components/headers/IngestId"
+              },
+              "Hookship-Duplicate": {
+                "$ref": "#/components/headers/Duplicate"
+              },
+              "Hookship-Idempotency-Expires-At": {
+                "$ref": "#/components/headers/IdempotencyExpiresAt"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "urn:hookship:spec:v1:schema:event-ingest-receipt"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Only a committed idempotency entry may return 200. The same assignment identity, body hash, and stable event headers already crossed the complete durability barrier, so the original ingest is returned. Pending entries must resume/repair or return 503; tombstones return 409.",
+            "headers": {
+              "Location": {
+                "$ref": "#/components/headers/Location"
+              },
+              "Hookship-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Hookship-Ingest-Id": {
+                "$ref": "#/components/headers/IngestId"
+              },
+              "Hookship-Duplicate": {
+                "$ref": "#/components/headers/Duplicate"
+              },
+              "Hookship-Idempotency-Expires-At": {
+                "$ref": "#/components/headers/IdempotencyExpiresAt"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "urn:hookship:spec:v1:schema:event-ingest-receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem413"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem415"
+          },
+          "422": {
+            "$ref": "#/components/responses/Problem422"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    },
+    "/v1/event-ingests/{ingest_id}": {
+      "get": {
+        "operationId": "getEventIngestStatus",
+        "summary": "Read payload-free ingest and dispatch-job status",
+        "description": "HTTPS with TLS 1.2 or newer is mandatory outside explicit loopback evaluation mode. The response never returns the raw payload, arbitrary producer headers, a payload preview, or a payload download reference. Unknown and foreign ingest IDs return indistinguishable 404 responses. Redirects are forbidden.",
+        "security": [
+          {
+            "HookshipHMAC": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ingest_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^ing_[A-Z0-9]{26}$"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Timestamp"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/BodySha256"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payload-free status for an ingest owned by the authenticated assignment.",
+            "headers": {
+              "Hookship-Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              },
+              "Hookship-Ingest-Id": {
+                "$ref": "#/components/headers/IngestId"
+              },
+              "Hookship-Idempotency-Expires-At": {
+                "$ref": "#/components/headers/IdempotencyExpiresAt"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "urn:hookship:spec:v1:schema:event-ingest-status"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem401"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem404"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem409"
+          },
+          "429": {
+            "$ref": "#/components/responses/Problem429"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem503"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "HookshipHMAC": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Scoped HMAC authentication over HTTPS: Hookship-HMAC Credential=<credential-id>,Signature=<unpadded-base64url>. TLS 1.2 is the non-loopback minimum, TLS 1.3 is preferred, and redirects are forbidden. See signing.md."
+      }
+    },
+    "parameters": {
+      "Timestamp": {
+        "name": "X-Hookship-Timestamp",
+        "in": "header",
+        "required": true,
+        "description": "Signed timestamp exactly YYYY-MM-DDTHH:MM:SSZ; accepted within 300 seconds of server time.",
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        }
+      },
+      "Nonce": {
+        "name": "X-Hookship-Nonce",
+        "in": "header",
+        "required": true,
+        "description": "Fresh signed replay nonce scoped to the credential.",
+        "schema": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      },
+      "BodySha256": {
+        "name": "X-Hookship-Body-SHA256",
+        "in": "header",
+        "required": true,
+        "description": "Lowercase hexadecimal SHA-256 of the exact entity body; for GET this is SHA-256 of empty bytes.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Stable operation identity scoped to the credential assignment.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      },
+      "EventId": {
+        "name": "X-Hookship-Event-ID",
+        "in": "header",
+        "required": true,
+        "description": "Producer-stable event identifier.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      },
+      "EventType": {
+        "name": "X-Hookship-Event-Type",
+        "in": "header",
+        "required": true,
+        "description": "Stable event type.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+        }
+      },
+      "Route": {
+        "name": "X-Hookship-Route",
+        "in": "header",
+        "required": true,
+        "description": "Logical route authorized by the resolved assignment.",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+        }
+      }
+    },
+    "headers": {
+      "Location": {
+        "description": "Payload-free status path.",
+        "schema": {
+          "type": "string",
+          "pattern": "^/v1/event-ingests/ing_[A-Z0-9]{26}$"
+        }
+      },
+      "RequestId": {
+        "description": "Opaque request correlation identifier.",
+        "schema": {
+          "type": "string",
+          "pattern": "^req_[A-Z0-9]{26}$"
+        }
+      },
+      "IngestId": {
+        "description": "Stable ingest identifier.",
+        "schema": {
+          "type": "string",
+          "pattern": "^ing_[A-Z0-9]{26}$"
+        }
+      },
+      "Duplicate": {
+        "description": "Whether the response returns a previously accepted ingest.",
+        "schema": {
+          "type": "boolean"
+        }
+      },
+      "IdempotencyExpiresAt": {
+        "description": "Whole-second UTC end of the minimum 24-hour committed duplicate retry horizon.",
+        "schema": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        }
+      }
+    },
+    "responses": {
+      "Problem400": {
+        "description": "Malformed request.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status400"
+            }
+          }
+        }
+      },
+      "Problem401": {
+        "description": "Authentication failed.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status401"
+            }
+          }
+        }
+      },
+      "Problem403": {
+        "description": "The authenticated assignment is not authorized for this ingest operation.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status403"
+            }
+          }
+        }
+      },
+      "Problem404": {
+        "description": "Indistinguishable unknown-or-foreign ingest lookup.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status404"
+            }
+          }
+        }
+      },
+      "Problem409": {
+        "description": "Replay, idempotency conflict, or terminal tombstone.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status409"
+            }
+          }
+        }
+      },
+      "Problem413": {
+        "description": "The exact body exceeds the assignment limit.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Hookship-Max-Body-Bytes": {
+            "description": "Maximum accepted raw entity-body bytes for this assignment.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status413"
+            }
+          }
+        }
+      },
+      "Problem415": {
+        "description": "The request uses a content encoding other than absent or identity.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status415"
+            }
+          }
+        }
+      },
+      "Problem422": {
+        "description": "The body hash or event semantics are invalid.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status422"
+            }
+          }
+        }
+      },
+      "Problem429": {
+        "description": "Ingest is throttled and may be retried.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "description": "Bounded delta seconds before retry; not a service-level commitment.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status429"
+            }
+          }
+        }
+      },
+      "Problem503": {
+        "description": "The durability barrier is unavailable or a pending idempotency entry could not be repaired during the request.",
+        "headers": {
+          "Hookship-Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "description": "Bounded delta seconds before retry; not a service-level commitment.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "urn:hookship:spec:v1:schema:problem-details#/$defs/status503"
+            }
+          }
+        }
+      }
+    }
+  }
+}

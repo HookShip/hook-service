@@ -25,3 +25,29 @@ the change must record:
 
 If that record is absent, the repository policy is that no WAAS code has been
 incorporated.
+
+## HookShip toolkit protocol references
+
+The v1 specification interoperates with, but does not import or depend on, the
+public HookShip toolkit snapshot at Git revision
+`1e8dc0267a1d77ca0cf256793693af0eba57f939`.
+This is the latest locally available `origin/main` snapshot and its
+repository-level `pnpm check` passed during this specification revision.
+
+The referenced source declarations are:
+
+- `packages/adapter-sdk/src/envelope.ts`:
+  `COMMAND_ENVELOPE_SCHEMA_VERSION = "2026-07-01"` and
+  `kind = "adapter_command"`;
+- `packages/adapter-sdk/src/metadata.ts`:
+  `CANONICAL_METADATA_SCHEMA_VERSION = "2026-07-01"`,
+  `METADATA_INGEST_SCHEMA_VERSION = "2026-07-01"`, and
+  `kind = "metadata_ingest"`;
+- `packages/canonical-model/src/model.ts`:
+  `CANONICAL_MODEL_VERSION = "1.0.0"` and
+  `CANONICAL_SCHEMA_VERSION = "2026-07-01"`.
+
+These are source-path and version citations only. No toolkit or private
+platform source is copied, vendored, translated, or introduced as a source,
+build, or runtime dependency. Compatibility is maintained through versioned
+wire contracts and independent fixtures.

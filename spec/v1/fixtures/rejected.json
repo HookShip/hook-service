@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1",
+  "case": "rejected",
+  "request": {
+    "method": "POST",
+    "path": "/v1/event-ingests",
+    "headers": {
+      "Authorization": "Hookship-HMAC Credential=cred_test_01,Signature=wWJMS5UONUQTUpuweJUEeX4ODBk5iipYte21U-rGE64",
+      "X-Hookship-Timestamp": "2026-07-19T16:00:08Z",
+      "X-Hookship-Nonce": "bm9uY2UtdGVzdC0wMDM5",
+      "Idempotency-Key": "order-create-0002",
+      "X-Hookship-Event-ID": "evt_order_0002",
+      "X-Hookship-Event-Type": "order.created",
+      "X-Hookship-Route": "orders.unassigned",
+      "X-Hookship-Body-SHA256": "2dfcf2896980dd2a7a3166da50dbb2c5524a746e64ab5c4de44d2012c74074d3",
+      "Content-Type": "application/json"
+    },
+    "bodyBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9Cg=="
+  },
+  "expected": {
+    "status": 422,
+    "headers": {
+      "Content-Type": "application/problem+json",
+      "Hookship-Request-Id": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WA"
+    },
+    "body": {
+      "type": "urn:hookship:problem:invalid-event",
+      "title": "Invalid event",
+      "status": 422,
+      "detail": "The requested route is not assigned to this producer.",
+      "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5WA",
+      "code": "invalid_event",
+      "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5WA",
+      "retryable": false
+    }
+  }
+}

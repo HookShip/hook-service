@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1",
+  "case": "conflict",
+  "request": {
+    "method": "POST",
+    "path": "/v1/event-ingests",
+    "headers": {
+      "Authorization": "Hookship-HMAC Credential=cred_test_01,Signature=UWQeCbkXvWFeSIic0MXErLzGqPUg3yfCpOWarGCYaJ0",
+      "X-Hookship-Timestamp": "2026-07-19T16:00:10Z",
+      "X-Hookship-Nonce": "bm9uY2UtdGVzdC0wMDQw",
+      "Idempotency-Key": "order-create-0001",
+      "X-Hookship-Event-ID": "evt_order_0001",
+      "X-Hookship-Event-Type": "order.created",
+      "X-Hookship-Route": "orders.primary",
+      "X-Hookship-Body-SHA256": "76c8bbf39dd8e6850ddd172b857bf2deddbc67f4889e94da540a17514bffc5ef",
+      "Content-Type": "application/json"
+    },
+    "bodyBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTF9Cg=="
+  },
+  "expected": {
+    "status": 409,
+    "headers": {
+      "Content-Type": "application/problem+json",
+      "Hookship-Request-Id": "req_01J4M6Y7N8P9Q0R1S2T3U4V5W9"
+    },
+    "body": {
+      "type": "urn:hookship:problem:idempotency-conflict",
+      "title": "Idempotency conflict",
+      "status": 409,
+      "detail": "The idempotency key was already accepted with a different body hash.",
+      "instance": "/v1/requests/req_01J4M6Y7N8P9Q0R1S2T3U4V5W9",
+      "code": "idempotency_conflict",
+      "requestId": "req_01J4M6Y7N8P9Q0R1S2T3U4V5W9",
+      "retryable": false
+    }
+  }
+}
