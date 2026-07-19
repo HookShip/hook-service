@@ -1,0 +1,32 @@
+name: Scoped proposal
+description: Propose a focused change consistent with the current project phase.
+title: "proposal: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the concrete problem without presupposing an API or implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope and non-goals
+      description: Explain what should and should not change.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and acceptance criteria
+      description: Provide use cases and observable success criteria.
+    validations:
+      required: true
+  - type: checkboxes
+    id: gate
+    attributes:
+      label: Specification gate
+      options:
+        - label: I understand delivery protocol and durability behavior require specification review before implementation.
+          required: true

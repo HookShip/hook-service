@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible defect in the current repository surface.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, webhook payloads, personal data, or unpatched vulnerability details.
+  - type: input
+    id: version
+    attributes:
+      label: Version or revision
+      description: Output from hookshipctl version or the Git revision.
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Relevant OS, architecture, Go, container, and configuration details.

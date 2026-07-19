@@ -1,0 +1,8 @@
+* @HookShip/delivery
+
+/.github/ @HookShip/delivery @HookShip/security
+/Dockerfile @HookShip/delivery @HookShip/security
+/SECURITY.md @HookShip/security
+/internal/config/ @HookShip/delivery @HookShip/security
+/internal/httpserver/ @HookShip/delivery @HookShip/security
+/spec/ @HookShip/delivery @HookShip/security
