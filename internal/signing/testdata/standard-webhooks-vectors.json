@@ -1,0 +1,57 @@
+{
+  "schemeVersion": "1",
+  "algorithm": "standard-webhooks-hmac-sha256",
+  "note": "Deterministic Standard Webhooks-compatible outbound signing vectors. Secrets here are obvious low-entropy test material and MUST NOT be used outside tests.",
+  "positive": [
+    {
+      "name": "whsec base64 secret over exact JSON body",
+      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+      "timestamp": 1700000000,
+      "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
+      "expectedSignature": "v1,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+    },
+    {
+      "name": "raw (non-whsec) secret",
+      "secret": "hookship-outbound-secret-0001",
+      "messageId": "msg_01HXYZ0000000000000000000A",
+      "timestamp": 1710000000,
+      "payloadBase64": "eyJldmVudCI6ImFjY291bnQudXBkYXRlZCIsImlkIjoiYWNjdF85In0=",
+      "expectedSignature": "v1,tQIWmUGR0lQMmQzQ7kDTeGQjHAAHs2Vtaw5fA2Hp1QM="
+    },
+    {
+      "name": "empty payload",
+      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "messageId": "msg_empty000000000000000000B",
+      "timestamp": 1710000123,
+      "payloadBase64": "",
+      "expectedSignature": "v1,XN0LQNeyPyS+uyzq0eoUziMx3lggDyDlIy4e2JQ8hqc="
+    }
+  ],
+  "negative": [
+    {
+      "name": "altered leading signature byte",
+      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+      "timestamp": 1700000000,
+      "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
+      "signatureHeader": "v1,T7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+    },
+    {
+      "name": "tampered payload",
+      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+      "timestamp": 1700000000,
+      "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6OTkuOTl9",
+      "signatureHeader": "v1,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+    },
+    {
+      "name": "wrong scheme version",
+      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+      "timestamp": 1700000000,
+      "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
+      "signatureHeader": "v2,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+    }
+  ]
+}
