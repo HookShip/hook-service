@@ -49,9 +49,28 @@ The durability library uses these modules:
 - `golang.org/x/sync` v0.17.0 — BSD 3-Clause License;
 - `golang.org/x/text` v0.29.0 — BSD 3-Clause License.
 
-Module source, exact checksums, and the selected dependency graph are recorded
-by `go.mod` and `go.sum`. License texts are distributed by their upstream
-module sources.
+## Runtime and profile dependencies
+
+The delivery runtime and its selectable backend profiles use these modules:
+
+- `gopkg.in/yaml.v3` v3.0.1 — MIT and Apache-2.0 Licenses (assignment config
+  parsing);
+- `github.com/redis/go-redis/v9` v9.7.3 — BSD 2-Clause License (used only by
+  the `postgres-redis` profile);
+- `github.com/segmentio/kafka-go` v0.4.47 — MIT License (used only by the
+  `postgres-kafka` profile);
+- `github.com/cespare/xxhash/v2` v2.2.0 — MIT License (indirect);
+- `github.com/dgryski/go-rendezvous`
+  v0.0.0-20200823014737-9f7001d12a5f — MIT License (indirect);
+- `github.com/klauspost/compress` v1.15.9 — BSD 3-Clause License (indirect);
+- `github.com/pierrec/lz4/v4` v4.1.15 — BSD 3-Clause License (indirect);
+- `github.com/xdg-go/scram`, `github.com/xdg-go/stringprep`, and
+  `github.com/xdg-go/pbkdf2` — Apache-2.0 License (indirect, Kafka SASL).
+
+The Redis and Kafka client modules are compiled into artifacts only when their
+respective profiles are built and selected. Module source, exact checksums, and
+the selected dependency graph are recorded by `go.mod` and `go.sum`. License
+texts are distributed by their upstream module sources.
 
 The Jack Christensen modules above are distributed under this license:
 
