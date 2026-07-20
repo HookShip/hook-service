@@ -232,6 +232,58 @@ func (r *Repository) RetryJob(
 	return nil
 }
 
+// FailJob terminally dead-letters a leased job regardless of remaining attempts.
+// It is used for non-retryable (terminal policy) delivery outcomes and requires
+// the caller to still hold the fencing lease.
+func (r *Repository) FailJob(
+	ctx context.Context,
+	lease JobLease,
+	errorCode string,
+) error {
+	if errorCode != "" {
+		if err := validateText("job error code", errorCode, 128); err != nil {
+			return err
+		}
+	}
+	tag, err := r.pool.Exec(ctx, `
+		WITH clock AS MATERIALIZED (
+			SELECT clock_timestamp() AS now
+		)
+		UPDATE durable_jobs
+		SET
+			state = 'dead',
+			run_at = clock.now,
+			lease_owner = NULL,
+			lease_token = NULL,
+			lease_expires_at = NULL,
+			completed_at = clock.now,
+			updated_at = clock.now,
+			last_error_code = $6
+		FROM clock
+		WHERE assignment_id = $1
+		  AND job_id = $2
+		  AND state = 'leased'
+		  AND lease_owner = $3
+		  AND lease_token = $4
+		  AND attempts = $5
+		  AND lease_expires_at > clock.now
+	`,
+		lease.AssignmentID,
+		lease.JobID,
+		lease.Owner,
+		lease.Token,
+		lease.Attempt,
+		nullIfEmpty(errorCode),
+	)
+	if err != nil {
+		return fmt.Errorf("fail job: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
 func (r *Repository) RecordAttemptAndOutbox(
 	ctx context.Context,
 	attempt AttemptRecord,

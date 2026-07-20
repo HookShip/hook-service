@@ -36,7 +36,8 @@ const (
 	envLogLevel            = "HOOKSHIP_LOG_LEVEL"
 )
 
-// Config contains the bounded settings needed by the HTTP process.
+// Config contains the bounded settings needed by the HTTP process and the
+// selected native runtime profile.
 type Config struct {
 	ListenAddress   string
 	ShutdownTimeout time.Duration
@@ -46,6 +47,10 @@ type Config struct {
 	IdleTimeout     time.Duration
 	MaxHeaderBytes  int
 	LogLevel        string
+
+	// Runtime is the selected backend profile and its bounded operational
+	// settings. It is empty until an explicit backend is configured.
+	Runtime RuntimeConfig
 }
 
 // Default returns a configuration that only listens on the local loopback.
@@ -97,6 +102,12 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	if value := strings.TrimSpace(getenv(envLogLevel)); value != "" {
 		cfg.LogLevel = strings.ToLower(value)
 	}
+
+	runtime, err := runtimeFromEnv(getenv)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Runtime = runtime
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -151,6 +162,14 @@ func (c Config) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("%s must be one of debug, info, warn, or error", envLogLevel)
+	}
+
+	selection, err := c.Runtime.SelectionForListen(c.ListenAddress)
+	if err != nil {
+		return err
+	}
+	if err := c.Runtime.validateWithSelection(selection); err != nil {
+		return err
 	}
 	return nil
 }
