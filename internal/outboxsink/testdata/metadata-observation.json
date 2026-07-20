@@ -1,0 +1,19 @@
+{
+  "description": "Canonical payload-free delivery observation wire contract pushed to the platform metadata-ingest endpoint. It never contains payload bytes, secrets, or arbitrary producer headers.",
+  "example": {
+    "schemaVersion": "1",
+    "assignmentId": "asg_orders",
+    "deliveryId": "del_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
+    "attemptId": "att_01J4M6Y7N8P9Q0R1S2T3U4V5W7",
+    "endpointSnapshotId": "snap_01J4M6Y7N8P9Q0R1S2T3U4V5W8",
+    "eventKind": "delivery.attempted",
+    "outcome": "success",
+    "responseStatus": 200,
+    "occurredAt": "2026-07-20T16:00:00Z"
+  },
+  "requiredHeaders": {
+    "Authorization": "Bearer <metadata-sink-token>",
+    "Content-Type": "application/json",
+    "Hookship-Metadata-Schema": "1"
+  }
+}
