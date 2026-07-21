@@ -14,7 +14,10 @@ import (
 	"github.com/hookship/hook-service/internal/config"
 	"github.com/hookship/hook-service/internal/httpserver"
 	"github.com/hookship/hook-service/internal/ingest"
+	"github.com/hookship/hook-service/internal/maintenance"
+	"github.com/hookship/hook-service/internal/metrics"
 	"github.com/hookship/hook-service/internal/outboxsink"
+	"github.com/hookship/hook-service/internal/ratelimit"
 	"github.com/hookship/hook-service/internal/runtime"
 	"github.com/hookship/hook-service/internal/transport"
 	"github.com/hookship/hook-service/internal/worker"
@@ -54,6 +57,8 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 
 	logStartupGuards(logger, cfg.Runtime, built)
 	durability := durabilityLabel(cfg.Runtime.Backend)
+	registry := metrics.NewRegistry()
+	status := operatorStatus(registry, cfg.Runtime, built, durability, info)
 
 	// A child context ensures the first component to return (for example a bind,
 	// Serve, or TLS failure) or a post-launch setup error cancels its peers so
@@ -68,7 +73,7 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 	life.addCloser(built.Close)
 
 	if mode == ModeAPI || mode == ModeAll {
-		server, err := buildServer(cfg, logger, info, built, ids, clock, durability)
+		server, err := buildServer(cfg, logger, info, built, ids, clock, durability, status)
 		if err != nil {
 			return life.finish(err)
 		}
@@ -77,6 +82,7 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 		server, err := httpserver.NewWithOptions(cfg, logger, info, httpserver.Options{
 			Durability:     durability,
 			ReadinessProbe: backendProbe(built),
+			StatusProvider: status,
 		})
 		if err != nil {
 			return life.finish(err)
@@ -95,12 +101,16 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 			wake = relayComp.wake
 			relayComp.launch(life.launchAux)
 		}
-		deliveryWorker, sink, err := buildWorker(cfg, logger, info, built, ids, clock, wake)
+		deliveryWorker, sink, err := buildWorker(cfg, logger, info, built, ids, clock, registry, wake)
 		if err != nil {
 			return life.finish(err)
 		}
 		life.addCloser(func() { _ = sink.Close() })
 		life.launchCritical("delivery worker", deliveryWorker.Run)
+
+		if retentionWorker := buildMaintenance(cfg.Runtime, logger, clock, registry, built); retentionWorker != nil {
+			life.launchAux("retention worker", retentionWorker.Run)
+		}
 	}
 
 	return life.finish(nil)
@@ -114,6 +124,7 @@ func buildServer(
 	ids runtime.IDSource,
 	clock runtime.Clock,
 	durability string,
+	status func() any,
 ) (*httpserver.Server, error) {
 	handler, err := ingest.New(ingest.Options{
 		Backend:                built,
@@ -131,6 +142,7 @@ func buildServer(
 		Register:       handler.Register,
 		ReadinessProbe: backendProbe(built),
 		Durability:     durability,
+		StatusProvider: status,
 	})
 }
 
@@ -141,6 +153,7 @@ func buildWorker(
 	built runtime.Backend,
 	ids runtime.IDSource,
 	clock runtime.Clock,
+	registry *metrics.Registry,
 	wake <-chan struct{},
 ) (*worker.Worker, outboxsink.Sink, error) {
 	sink, err := buildSink(cfg.Runtime, logger)
@@ -154,6 +167,14 @@ func buildWorker(
 		AllowPlaintext: cfg.Runtime.AllowPlaintextDelivery(),
 		UserAgent:      "hookship-delivery/" + info.Version,
 	})
+	limiter := ratelimit.New(ratelimit.Config{
+		AssignmentConcurrency: cfg.Runtime.AssignmentConcurrency,
+		EndpointConcurrency:   cfg.Runtime.EndpointConcurrency,
+		AssignmentRatePerSec:  cfg.Runtime.AssignmentRatePerSec,
+		AssignmentBurst:       cfg.Runtime.AssignmentRateBurst,
+		EndpointRatePerSec:    cfg.Runtime.EndpointRatePerSec,
+		EndpointBurst:         cfg.Runtime.EndpointRateBurst,
+	}, clock)
 	deliveryWorker, err := worker.New(worker.Options{
 		Backend:         built,
 		Transport:       client,
@@ -161,6 +182,8 @@ func buildWorker(
 		Clock:           clock,
 		IDs:             ids,
 		Logger:          logger,
+		Metrics:         registry,
+		Limiter:         limiter,
 		Concurrency:     cfg.Runtime.WorkerConcurrency,
 		LeaseDuration:   cfg.Runtime.WorkerLease,
 		DeliveryTimeout: cfg.Runtime.DeliveryTimeout,
@@ -171,6 +194,68 @@ func buildWorker(
 		return nil, nil, err
 	}
 	return deliveryWorker, sink, nil
+}
+
+// buildMaintenance constructs the retention/cleanup worker when the backend
+// supports durable retention. Ephemeral backends return nil.
+func buildMaintenance(
+	runtimeCfg config.RuntimeConfig,
+	logger *slog.Logger,
+	clock runtime.Clock,
+	registry *metrics.Registry,
+	built runtime.Backend,
+) *maintenance.Worker {
+	retention, ok := built.(maintenance.RetentionBackend)
+	if !ok {
+		return nil
+	}
+	worker, err := maintenance.New(maintenance.Options{
+		Backend:         retention,
+		Clock:           clock,
+		Logger:          logger,
+		Metrics:         registry,
+		Interval:        runtimeCfg.RetentionInterval,
+		BatchLimit:      runtimeCfg.RetentionBatch,
+		OutboxRetention: runtimeCfg.OutboxRetention,
+	})
+	if err != nil {
+		logger.Warn("retention worker not started", slog.String("error", err.Error()))
+		return nil
+	}
+	return worker
+}
+
+// operatorStatus builds a payload-free status provider for /statusz. It exposes
+// build info, the backend selection, and runtime metrics — never bodies,
+// payloads, secrets, or identifiers.
+func operatorStatus(
+	registry *metrics.Registry,
+	runtimeCfg config.RuntimeConfig,
+	built runtime.Backend,
+	durability string,
+	info buildinfo.Info,
+) func() any {
+	payloadBackend := "postgres"
+	if runtimeCfg.UsesObjectStore() {
+		payloadBackend = "object-store"
+	} else if !built.Durable() {
+		payloadBackend = "memory"
+	}
+	keyProvider := runtimeCfg.KeyProvider
+	if keyProvider == "" {
+		keyProvider = "static"
+	}
+	return func() any {
+		return map[string]any{
+			"service":        "hookshipd",
+			"version":        info.Version,
+			"backend":        built.Name(),
+			"durability":     durability,
+			"payloadBackend": payloadBackend,
+			"keyProvider":    keyProvider,
+			"metrics":        registry.Snapshot(),
+		}
+	}
 }
 
 func buildSink(runtimeCfg config.RuntimeConfig, logger *slog.Logger) (outboxsink.Sink, error) {

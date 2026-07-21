@@ -14,7 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hookship/hook-service/internal/metrics"
 	"github.com/hookship/hook-service/internal/outboxsink"
+	"github.com/hookship/hook-service/internal/ratelimit"
 	"github.com/hookship/hook-service/internal/runtime"
 	"github.com/hookship/hook-service/internal/signing"
 	"github.com/hookship/hook-service/internal/transport"
@@ -22,20 +24,23 @@ import (
 
 // Options configures the delivery worker.
 type Options struct {
-	Backend          runtime.Backend
-	Transport        *transport.Client
-	Sink             outboxsink.Sink
-	Clock            runtime.Clock
-	IDs              runtime.IDSource
-	Logger           *slog.Logger
-	Concurrency      int
-	LeaseDuration    time.Duration
-	DeliveryTimeout  time.Duration
-	BaseBackoff      time.Duration
-	MaxBackoff       time.Duration
-	PollInterval     time.Duration
-	BreakerThreshold int
-	BreakerCooldown  time.Duration
+	Backend           runtime.Backend
+	Transport         *transport.Client
+	Sink              outboxsink.Sink
+	Clock             runtime.Clock
+	IDs               runtime.IDSource
+	Logger            *slog.Logger
+	Metrics           *metrics.Registry
+	Limiter           *ratelimit.Limiter
+	Concurrency       int
+	LeaseDuration     time.Duration
+	DeliveryTimeout   time.Duration
+	BaseBackoff       time.Duration
+	MaxBackoff        time.Duration
+	PollInterval      time.Duration
+	BackpressureDelay time.Duration
+	BreakerThreshold  int
+	BreakerCooldown   time.Duration
 	// Wake, when set, triggers an immediate claim pass. The relay notifier
 	// signals it on each dispatch notification to reduce claim latency.
 	Wake <-chan struct{}
@@ -71,6 +76,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.PollInterval <= 0 {
 		o.PollInterval = 250 * time.Millisecond
+	}
+	if o.BackpressureDelay <= 0 {
+		o.BackpressureDelay = time.Second
 	}
 	return o
 }
@@ -189,9 +197,29 @@ func (w *Worker) deliver(ctx context.Context, assignment runtime.Assignment, job
 	breakerKey := job.EndpointSnapshotID
 	if !w.breakers.Allow(breakerKey) {
 		// The endpoint circuit is open; reschedule without a provider call.
+		w.options.Metrics.Inc(metrics.CounterCircuitOpenSkips)
 		_ = w.options.Backend.RetryJob(ctx, lease, w.breakers.Cooldown(), "circuit_open")
 		return
 	}
+
+	// Enforce per-assignment and per-endpoint concurrency and rate limits with
+	// bounded backpressure: on rejection the job is rescheduled after a short
+	// delay instead of blocking a worker goroutine.
+	releaseLimit, reason, ok := w.options.Limiter.Acquire(assignment.ID, breakerKey)
+	if !ok {
+		switch reason {
+		case ratelimit.ReasonAssignmentRate, ratelimit.ReasonEndpointRate:
+			w.options.Metrics.Inc(metrics.CounterRateLimited)
+		default:
+			w.options.Metrics.Inc(metrics.CounterConcurrencyDeferred)
+		}
+		_ = w.options.Backend.RetryJob(ctx, lease, w.options.BackpressureDelay, "backpressure_"+string(reason))
+		return
+	}
+	defer releaseLimit()
+	w.options.Metrics.AddGauge(metrics.GaugeInFlightDeliveries, 1)
+	defer w.options.Metrics.AddGauge(metrics.GaugeInFlightDeliveries, -1)
+	w.options.Metrics.Inc(metrics.CounterDeliveriesAttempted)
 
 	delivery, err := w.options.Backend.LoadDelivery(ctx, job)
 	if err != nil {
@@ -233,14 +261,17 @@ func (w *Worker) deliver(ctx context.Context, assignment runtime.Assignment, job
 func (w *Worker) settle(ctx context.Context, lease runtime.JobLease, job runtime.Job, classification Classification, source *rand.Rand) {
 	switch classification.Outcome {
 	case runtime.OutcomeSuccess:
+		w.options.Metrics.Inc(metrics.CounterDeliveriesSucceeded)
 		if err := w.options.Backend.CompleteJob(ctx, lease); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
 			w.options.Logger.Warn("complete job failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
 		}
 	case runtime.OutcomeTerminal:
+		w.options.Metrics.Inc(metrics.CounterDeliveriesDead)
 		if err := w.options.Backend.FailJob(ctx, lease, classification.ErrorCode); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
 			w.options.Logger.Warn("fail job failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
 		}
 	default:
+		w.options.Metrics.Inc(metrics.CounterDeliveriesRetried)
 		delay := w.backoff(job.Attempts, source)
 		if classification.HasRetryAfter && classification.RetryAfter > 0 {
 			delay = boundRetryAfter(classification.RetryAfter, w.options.MaxBackoff)

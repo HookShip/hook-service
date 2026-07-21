@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/hookship/hook-service/internal/assignmentconfig"
 	"github.com/hookship/hook-service/internal/awsv4"
 	"github.com/hookship/hook-service/internal/backend/backendtest"
@@ -197,5 +199,110 @@ func acceptObject(t *testing.T, ctx context.Context, backend runtime.Backend, as
 		DispatchRunAt: now, DispatchMaxAttempts: 5,
 	}); err != nil {
 		t.Fatalf("accept object: %v", err)
+	}
+}
+
+// TestObjectStorePayloadReclamationDeletesObjects proves the retention path
+// removes the immutable ciphertext object once its payload is deletion-eligible
+// (delivered, tombstoned, and expired). This exercises ReclaimExpiredPayloads,
+// which the maintenance worker drives.
+func TestObjectStorePayloadReclamationDeletesObjects(t *testing.T) {
+	pool, cleanup := newIsolatedPool(t)
+	defer cleanup()
+	ctx := context.Background()
+	sealer := newTestSealer(t)
+	store := objectstore.NewMemoryStore()
+	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
+	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+		backendpg.WithPayloadStore(store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	resolved, _ := backend.ResolveCredential(ctx, base.CredentialID)
+
+	// Accept with a backdated acceptance so the idempotency ledger is already
+	// past its retention window (eligible to tombstone) while the object payload
+	// is still unexpired at acceptance time.
+	body := []byte(`{"reclaim":true}`)
+	hash := runtime.SHA256(body)
+	headers := runtime.StableHeaders{EventID: "evt_reclaim", EventType: "order.created", Route: "orders.primary", ContentType: "application/json"}
+	reservation, err := backend.ReserveIdempotency(ctx, runtime.ReservationRequest{
+		LedgerID: "led_reclaim", AssignmentID: resolved.ID, IdempotencyKey: "op-reclaim",
+		BodySHA256: hash, Headers: headers, ReservedAt: runtime.SystemClock{}.Now().Add(-25 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, _ := backend.Seal(body)
+	now := runtime.SystemClock{}.Now()
+	acceptedAt := now.Add(-26 * time.Hour)
+	payloadExpiry := now.Add(3 * time.Second)
+	if err := backend.Accept(ctx, runtime.AcceptanceRequest{
+		Assignment: resolved, LedgerID: reservation.Reservation.LedgerID, IdempotencyKey: "op-reclaim",
+		IngestID: "ing_reclaim", PayloadID: "pay_reclaim", DeliveryID: "del_reclaim", DispatchJobID: "job_reclaim",
+		EndpointSnapshotID: resolved.EndpointSnapshotID, Payload: sealed, BodySHA256: hash, Headers: headers,
+		AcceptedAt: acceptedAt, IdempotencyExpires: now.Add(-time.Hour), PayloadExpiresAt: payloadExpiry,
+		DispatchRunAt: acceptedAt, DispatchMaxAttempts: 5,
+	}); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if store.ObjectCount() == 0 {
+		t.Fatal("expected ciphertext object written")
+	}
+
+	// Drive the dispatch job to a terminal (succeeded) state so its payload is
+	// eligible for deletion.
+	job, ok, err := backend.ClaimJob(ctx, resolved.ID, runtime.JobKindDispatch, "worker", "token", 30*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if err := backend.CompleteJob(ctx, runtime.JobLease{AssignmentID: resolved.ID, JobID: job.JobID, Owner: "worker", Token: "token", Attempt: job.Attempts}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	// Tombstone the ledger and wait for the database clock to pass the short
+	// payload expiry so it becomes reclaimable.
+	if _, err := backend.AdvanceTombstones(ctx, resolved.ID, 10); err != nil {
+		t.Fatalf("advance tombstones: %v", err)
+	}
+	waitForDatabaseTime(t, pool, payloadExpiry)
+
+	reclaimed, err := backend.ReclaimExpiredPayloads(ctx, resolved.ID, 10)
+	if err != nil {
+		t.Fatalf("reclaim: %v", err)
+	}
+	if reclaimed != 1 {
+		t.Fatalf("expected 1 payload reclaimed, got %d", reclaimed)
+	}
+	if store.ObjectCount() != 0 {
+		t.Fatalf("ciphertext objects must be deleted after reclamation, %d remain", store.ObjectCount())
+	}
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state::text FROM payload_records WHERE assignment_id = $1 AND payload_id = $2`, resolved.ID, "pay_reclaim").Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "deleted" {
+		t.Fatalf("payload state = %q, want deleted", state)
+	}
+}
+
+// waitForDatabaseTime blocks until the database clock passes target, so a short
+// payload expiry becomes effective under the server-authoritative clock.
+func waitForDatabaseTime(t *testing.T, pool *pgxpool.Pool, target time.Time) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var passed bool
+		if err := pool.QueryRow(context.Background(), `SELECT clock_timestamp() > $1`, target.UTC()).Scan(&passed); err != nil {
+			t.Fatal(err)
+		}
+		if passed {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("database clock did not advance past the payload expiry")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

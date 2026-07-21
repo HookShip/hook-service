@@ -453,6 +453,12 @@ func (b *Backend) MarkExpiredObjectStagesOrphaned(ctx context.Context, assignmen
 	return b.repo.MarkExpiredObjectStagesOrphaned(ctx, assignmentID, limit)
 }
 
+// PurgeTerminalOutbox deletes published or dead metadata outbox rows older than
+// olderThan, bounding growth of the payload-free metadata outbox.
+func (b *Backend) PurgeTerminalOutbox(ctx context.Context, assignmentID string, olderThan time.Time, limit int) (int64, error) {
+	return b.repo.PurgeTerminalOutbox(ctx, assignmentID, olderThan, limit)
+}
+
 // ReclaimExpiredPayloads claims and deletes eligible expired payloads for an
 // assignment, removing object-store ciphertext (or nulling PostgreSQL ciphertext
 // bytes) under a fencing lease. It returns the number reclaimed in this pass so

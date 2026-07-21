@@ -28,6 +28,20 @@ const (
 	envWorkerLease       = "HOOKSHIP_WORKER_LEASE"
 	envDeliveryTimeout   = "HOOKSHIP_DELIVERY_TIMEOUT"
 	envMaxAttempts       = "HOOKSHIP_MAX_ATTEMPTS"
+
+	// Per-assignment and per-endpoint concurrency and rate limits with bounded
+	// backpressure. Zero disables an individual limit.
+	envEndpointConcurrency   = "HOOKSHIP_ENDPOINT_MAX_CONCURRENCY"
+	envAssignmentConcurrency = "HOOKSHIP_ASSIGNMENT_MAX_CONCURRENCY"
+	envEndpointRate          = "HOOKSHIP_ENDPOINT_RATE_PER_SEC"
+	envEndpointBurst         = "HOOKSHIP_ENDPOINT_RATE_BURST"
+	envAssignmentRate        = "HOOKSHIP_ASSIGNMENT_RATE_PER_SEC"
+	envAssignmentBurst       = "HOOKSHIP_ASSIGNMENT_RATE_BURST"
+
+	// Retention / cleanup worker bounds.
+	envRetentionInterval = "HOOKSHIP_RETENTION_INTERVAL"
+	envRetentionBatch    = "HOOKSHIP_RETENTION_BATCH"
+	envOutboxRetention   = "HOOKSHIP_OUTBOX_RETENTION"
 	envOutboxSink        = "HOOKSHIP_OUTBOX_SINK"
 	envSinkURL           = "HOOKSHIP_SINK_URL"
 	envMetadataSinkURL   = "HOOKSHIP_METADATA_SINK_URL"
@@ -70,6 +84,9 @@ const (
 	defaultWorkerLease       = 30 * time.Second
 	defaultDeliveryTimeout   = 30 * time.Second
 	defaultMaxAttempts       = 12
+	defaultRetentionInterval = time.Minute
+	defaultRetentionBatch    = 500
+	defaultOutboxRetention   = 24 * time.Hour
 )
 
 // RuntimeConfig captures the selected native runtime profile and its bounded
@@ -109,6 +126,20 @@ type RuntimeConfig struct {
 	// "aws-kms"). KMS holds the AWS KMS provider settings.
 	KeyProvider string
 	KMS         KMSSettings
+
+	// Delivery concurrency and rate limits with bounded backpressure. Zero
+	// disables an individual limit.
+	EndpointConcurrency   int
+	AssignmentConcurrency int
+	EndpointRatePerSec    float64
+	EndpointRateBurst     int
+	AssignmentRatePerSec  float64
+	AssignmentRateBurst   int
+
+	// Retention worker bounds.
+	RetentionInterval time.Duration
+	RetentionBatch    int
+	OutboxRetention   time.Duration
 
 	payloadKey []byte
 }
@@ -203,6 +234,9 @@ func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 		WorkerLease:       defaultWorkerLease,
 		DeliveryTimeout:   defaultDeliveryTimeout,
 		MaxAttempts:       defaultMaxAttempts,
+		RetentionInterval: defaultRetentionInterval,
+		RetentionBatch:    defaultRetentionBatch,
+		OutboxRetention:   defaultOutboxRetention,
 		OutboxSink:        strings.TrimSpace(getenv(envOutboxSink)),
 		SinkURL:           strings.TrimSpace(getenv(envSinkURL)),
 		MetadataSinkURL:   strings.TrimSpace(getenv(envMetadataSinkURL)),
@@ -244,6 +278,33 @@ func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 		return RuntimeConfig{}, err
 	}
 	if err := durationFromEnv(getenv, envDeliveryTimeout, &runtime.DeliveryTimeout); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := intFromEnv(getenv, envEndpointConcurrency, &runtime.EndpointConcurrency); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := intFromEnv(getenv, envAssignmentConcurrency, &runtime.AssignmentConcurrency); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := intFromEnv(getenv, envEndpointBurst, &runtime.EndpointRateBurst); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := intFromEnv(getenv, envAssignmentBurst, &runtime.AssignmentRateBurst); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := intFromEnv(getenv, envRetentionBatch, &runtime.RetentionBatch); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := floatFromEnv(getenv, envEndpointRate, &runtime.EndpointRatePerSec); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := floatFromEnv(getenv, envAssignmentRate, &runtime.AssignmentRatePerSec); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := durationFromEnv(getenv, envRetentionInterval, &runtime.RetentionInterval); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if err := durationFromEnv(getenv, envOutboxRetention, &runtime.OutboxRetention); err != nil {
 		return RuntimeConfig{}, err
 	}
 	if value := strings.TrimSpace(getenv(envPayloadKey)); value != "" {
@@ -337,6 +398,24 @@ func (r RuntimeConfig) validateWithSelection(selection capabilities.Selection) e
 	}
 	if r.MaxAttempts < 1 || r.MaxAttempts > 1000 {
 		return fmt.Errorf("%s must be between 1 and 1000", envMaxAttempts)
+	}
+	if r.EndpointConcurrency < 0 || r.EndpointConcurrency > 100000 {
+		return fmt.Errorf("%s must be between 0 and 100000", envEndpointConcurrency)
+	}
+	if r.AssignmentConcurrency < 0 || r.AssignmentConcurrency > 100000 {
+		return fmt.Errorf("%s must be between 0 and 100000", envAssignmentConcurrency)
+	}
+	if r.EndpointRateBurst < 0 || r.AssignmentRateBurst < 0 {
+		return fmt.Errorf("rate burst values must not be negative")
+	}
+	if r.RetentionInterval != 0 && (r.RetentionInterval < time.Second || r.RetentionInterval > time.Hour) {
+		return fmt.Errorf("%s must be between 1s and 1h", envRetentionInterval)
+	}
+	if r.RetentionBatch != 0 && (r.RetentionBatch < 1 || r.RetentionBatch > 10000) {
+		return fmt.Errorf("%s must be between 1 and 10000", envRetentionBatch)
+	}
+	if r.OutboxRetention != 0 && r.OutboxRetention < time.Minute {
+		return fmt.Errorf("%s must be at least 1m", envOutboxRetention)
 	}
 
 	result := capabilities.Validate(selection)
@@ -464,6 +543,22 @@ func intFromEnv(getenv func(string) string, name string, destination *int) error
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return fmt.Errorf("%s must be an integer: %w", name, err)
+	}
+	*destination = parsed
+	return nil
+}
+
+func floatFromEnv(getenv func(string) string, name string, destination *float64) error {
+	value := strings.TrimSpace(getenv(name))
+	if value == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fmt.Errorf("%s must be a number: %w", name, err)
+	}
+	if parsed < 0 {
+		return fmt.Errorf("%s must not be negative", name)
 	}
 	*destination = parsed
 	return nil

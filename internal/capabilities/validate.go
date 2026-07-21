@@ -120,16 +120,17 @@ func Validate(selection Selection) ValidationResult {
 	case "", PayloadMemory, PayloadPostgres:
 		// Supported payload backends.
 	case PayloadObjectStore:
-		result.Warnings = append(result.Warnings, Finding{
-			ReasonCode: ReasonExperimentalObjectPort,
-			Capability: "payloadBackend",
-			Reason:     "the S3-compatible object-store payload backend is NOT wired into the runtime; the profile's default payload store is used instead (PostgreSQL ciphertext for durable profiles, memory for evaluation). No object-store bytes are written.",
-		})
-		if selection.Production {
+		// The S3-compatible object-store payload backend is wired: ciphertext is
+		// written to an immutable object store and PostgreSQL keeps only the
+		// payload-free locator, checksum, and key metadata. It requires a durable
+		// profile; the object-store connection settings are validated separately
+		// by the configuration layer, which fails closed on unsafe production
+		// settings.
+		if document.Properties.Durability == DurabilityEphemeral {
 			result.Errors = append(result.Errors, Finding{
-				ReasonCode: ReasonExperimentalInProd,
+				ReasonCode: ReasonObjectStoreDurable,
 				Capability: "payloadBackend",
-				Reason:     "the experimental object-store payload backend must not be selected in production; it is not wired and the runtime would use PostgreSQL ciphertext.",
+				Reason:     "the object-store payload backend requires a durable profile; the evaluation profile keeps ciphertext in memory.",
 			})
 		}
 	default:

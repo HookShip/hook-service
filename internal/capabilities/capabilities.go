@@ -85,6 +85,7 @@ const (
 	ReasonPostgresSourceOfTruth  ReasonCode = "postgres_source_of_truth"
 	ReasonOutboxRelay            ReasonCode = "transactional_outbox_relay"
 	ReasonExperimentalObjectPort ReasonCode = "object_store_port_incomplete"
+	ReasonObjectStorePayload     ReasonCode = "object_store_payload_supported"
 	ReasonUnsafeDualWrite        ReasonCode = "unsafe_dual_write_forbidden"
 	ReasonNativeLedgerUnbuilt    ReasonCode = "native_queue_ledger_not_designed"
 
@@ -97,6 +98,7 @@ const (
 	ReasonExactlyOnce         ReasonCode = "exactly_once_unsupported"
 	ReasonExperimentalInProd  ReasonCode = "experimental_backend_in_production"
 	ReasonUnsupportedPayload  ReasonCode = "unsupported_payload_backend"
+	ReasonObjectStoreDurable  ReasonCode = "object_store_requires_durable_profile"
 )
 
 // Bounds describes the maximum tested operating envelope. Values outside these
@@ -142,14 +144,15 @@ type Properties struct {
 
 // CapabilitySet groups the per-capability declarations.
 type CapabilitySet struct {
-	AcknowledgementBarrier Capability `json:"acknowledgementBarrier"`
-	DurableProtocolV1      Capability `json:"durableProtocolV1Acknowledgement"`
-	RestartRecovery        Capability `json:"restartRecovery"`
-	DurableIdempotency     Capability `json:"durableIdempotency"`
-	LeaseFencing           Capability `json:"leaseFencing"`
-	MultiReplica           Capability `json:"multiReplicaSafe"`
-	MultiProcess           Capability `json:"multiProcessSafe"`
-	ReplayRedrive          Capability `json:"replayRedrive"`
+	AcknowledgementBarrier    Capability `json:"acknowledgementBarrier"`
+	DurableProtocolV1         Capability `json:"durableProtocolV1Acknowledgement"`
+	RestartRecovery           Capability `json:"restartRecovery"`
+	DurableIdempotency        Capability `json:"durableIdempotency"`
+	LeaseFencing              Capability `json:"leaseFencing"`
+	MultiReplica              Capability `json:"multiReplicaSafe"`
+	MultiProcess              Capability `json:"multiProcessSafe"`
+	ReplayRedrive             Capability `json:"replayRedrive"`
+	ObjectStorePayloadBackend Capability `json:"objectStorePayloadBackend"`
 }
 
 // Requirements groups the operational requirements.

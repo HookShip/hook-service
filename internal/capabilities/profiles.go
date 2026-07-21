@@ -117,14 +117,15 @@ func memoryDocument() Document {
 		TypicalUse:            "tests and demos",
 	}
 	document.Capabilities = CapabilitySet{
-		AcknowledgementBarrier: unsupported(ReasonEphemeralEvaluation, "Acceptance is in-memory only; a restart loses accepted events."),
-		DurableProtocolV1:      unsupported(ReasonEphemeralEvaluation, "Ephemeral state cannot provide protocol-v1 durable acknowledgement."),
-		RestartRecovery:        unsupported(ReasonEphemeralEvaluation, "All state is process-local and disappears on restart."),
-		DurableIdempotency:     unsupported(ReasonEphemeralEvaluation, "Idempotency ledger is bounded and process-local."),
-		LeaseFencing:           supported(ReasonNone, "In-process fencing tokens prevent stale settlement within one process."),
-		MultiReplica:           unsupported(ReasonEphemeralEvaluation, "State is not shared across processes or replicas."),
-		MultiProcess:           unsupported(ReasonEphemeralEvaluation, "State is not shared across processes."),
-		ReplayRedrive:          supported(ReasonNone, "Dead jobs can be redriven within the running process."),
+		AcknowledgementBarrier:    unsupported(ReasonEphemeralEvaluation, "Acceptance is in-memory only; a restart loses accepted events."),
+		DurableProtocolV1:         unsupported(ReasonEphemeralEvaluation, "Ephemeral state cannot provide protocol-v1 durable acknowledgement."),
+		RestartRecovery:           unsupported(ReasonEphemeralEvaluation, "All state is process-local and disappears on restart."),
+		DurableIdempotency:        unsupported(ReasonEphemeralEvaluation, "Idempotency ledger is bounded and process-local."),
+		LeaseFencing:              supported(ReasonNone, "In-process fencing tokens prevent stale settlement within one process."),
+		MultiReplica:              unsupported(ReasonEphemeralEvaluation, "State is not shared across processes or replicas."),
+		MultiProcess:              unsupported(ReasonEphemeralEvaluation, "State is not shared across processes."),
+		ReplayRedrive:             supported(ReasonNone, "Dead jobs can be redriven within the running process."),
+		ObjectStorePayloadBackend: unsupported(ReasonEphemeralEvaluation, "The evaluation profile keeps ciphertext in memory and never writes durable object payloads."),
 	}
 	document.Bounds = Bounds{MaxPayloadBytes: 1 << 20, MaxAssignments: 256, MaxInFlightJobs: 10000}
 	document.Requirements = Requirements{
@@ -159,14 +160,15 @@ func postgresDocument() Document {
 		TypicalUse:            "local and single-VM durable delivery",
 	}
 	document.Capabilities = CapabilitySet{
-		AcknowledgementBarrier: supported(ReasonProtocolV1Durable, "Ingest, ledger, payload, and dispatch job commit in one transaction."),
-		DurableProtocolV1:      supported(ReasonProtocolV1Durable, "202 is returned only after the four artifacts are durable."),
-		RestartRecovery:        supported(ReasonProtocolV1Durable, "Committed state and pending reservations recover after restart."),
-		DurableIdempotency:     supported(ReasonProtocolV1Durable, "Idempotency ledger is durable for the full retry horizon."),
-		LeaseFencing:           supported(ReasonNone, "Database-clock leases with fencing tokens prevent stale settlement."),
-		MultiReplica:           supported(ReasonNone, "SKIP LOCKED claims allow multiple API/worker replicas."),
-		MultiProcess:           supported(ReasonNone, "Multiple worker processes claim safely."),
-		ReplayRedrive:          supported(ReasonNone, "Dead jobs are surfaced and redriven by explicit operator action."),
+		AcknowledgementBarrier:    supported(ReasonProtocolV1Durable, "Ingest, ledger, payload, and dispatch job commit in one transaction."),
+		DurableProtocolV1:         supported(ReasonProtocolV1Durable, "202 is returned only after the four artifacts are durable."),
+		RestartRecovery:           supported(ReasonProtocolV1Durable, "Committed state and pending reservations recover after restart."),
+		DurableIdempotency:        supported(ReasonProtocolV1Durable, "Idempotency ledger is durable for the full retry horizon."),
+		LeaseFencing:              supported(ReasonNone, "Database-clock leases with fencing tokens prevent stale settlement."),
+		MultiReplica:              supported(ReasonNone, "SKIP LOCKED claims allow multiple API/worker replicas."),
+		MultiProcess:              supported(ReasonNone, "Multiple worker processes claim safely."),
+		ReplayRedrive:             supported(ReasonNone, "Dead jobs are surfaced and redriven by explicit operator action."),
+		ObjectStorePayloadBackend: supported(ReasonObjectStorePayload, "Ciphertext may be stored in an S3-compatible object store; PostgreSQL keeps only the payload-free object locator, checksum, and key metadata. The 202 barrier requires the immutable object PUT plus the PostgreSQL commit. PostgreSQL-byte storage remains the default."),
 	}
 	document.Bounds = Bounds{MaxPayloadBytes: 16 << 20, MaxInFlightJobs: 100000}
 	document.Requirements = Requirements{
@@ -242,14 +244,15 @@ func kafkaNativeLedgerDocument() Document {
 		TypicalUse:            "not available",
 	}
 	document.Capabilities = CapabilitySet{
-		AcknowledgementBarrier: unsupported(ReasonNativeLedgerUnbuilt, "No acceptance barrier is defined for a Kafka-only ledger."),
-		DurableProtocolV1:      unsupported(ReasonNativeLedgerUnbuilt, "Protocol-v1 acceptance is not defined against a Kafka-only ledger."),
-		RestartRecovery:        unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
-		DurableIdempotency:     unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
-		LeaseFencing:           unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
-		MultiReplica:           unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
-		MultiProcess:           unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
-		ReplayRedrive:          unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		AcknowledgementBarrier:    unsupported(ReasonNativeLedgerUnbuilt, "No acceptance barrier is defined for a Kafka-only ledger."),
+		DurableProtocolV1:         unsupported(ReasonNativeLedgerUnbuilt, "Protocol-v1 acceptance is not defined against a Kafka-only ledger."),
+		RestartRecovery:           unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		DurableIdempotency:        unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		LeaseFencing:              unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		MultiReplica:              unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		MultiProcess:              unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		ReplayRedrive:             unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
+		ObjectStorePayloadBackend: unsupported(ReasonNativeLedgerUnbuilt, "Undefined."),
 	}
 	document.Bounds = Bounds{}
 	document.Requirements = Requirements{

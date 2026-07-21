@@ -2,7 +2,6 @@ package capabilities_test
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/hookship/hook-service/internal/capabilities"
@@ -133,47 +132,53 @@ func TestValidateAcceptsSupportedSelections(t *testing.T) {
 	}
 }
 
-func TestValidateWarnsOnExperimentalObjectStore(t *testing.T) {
-	result := capabilities.Validate(capabilities.Selection{
-		Profile:        capabilities.ProfilePostgres,
-		PayloadBackend: capabilities.PayloadObjectStore,
-	})
-	if !result.OK {
-		t.Fatalf("object store should be allowed outside production, got %+v", result.Errors)
+func TestValidateAllowsWiredObjectStoreOnDurableProfiles(t *testing.T) {
+	for _, profile := range []string{
+		capabilities.ProfilePostgres,
+		capabilities.ProfilePostgresRedis,
+		capabilities.ProfilePostgresKafka,
+	} {
+		result := capabilities.Validate(capabilities.Selection{
+			Profile:         profile,
+			Production:      true,
+			RedisConfigured: true,
+			KafkaConfigured: true,
+			PayloadBackend:  capabilities.PayloadObjectStore,
+		})
+		if !result.OK {
+			t.Fatalf("%s: wired object store must be allowed in production, got %+v", profile, result.Errors)
+		}
+		// The object-store backend is wired now: no "not wired" warning is emitted.
+		if warning := findReason(result.Warnings, capabilities.ReasonExperimentalObjectPort); warning != nil {
+			t.Fatalf("%s: object store must no longer warn as unwired: %+v", profile, warning)
+		}
 	}
-	warning := findReason(result.Warnings, capabilities.ReasonExperimentalObjectPort)
-	if warning == nil {
-		t.Fatalf("expected experimental object-store warning, got %+v", result.Warnings)
+	// The durable profiles advertise the wired capability in their documents.
+	document, _ := capabilities.Lookup(capabilities.ProfilePostgres)
+	if !document.Capabilities.ObjectStorePayloadBackend.Supported {
+		t.Fatal("postgres profile must advertise a supported object-store payload backend")
 	}
-	// The warning must be honest: the backend is not wired and no object-store
-	// bytes are written; the runtime keeps using the default payload store.
-	lower := strings.ToLower(warning.Reason)
-	if !strings.Contains(lower, "not wired") {
-		t.Fatalf("warning must state the object-store backend is not wired: %q", warning.Reason)
-	}
-	if !strings.Contains(lower, "no object-store bytes") {
-		t.Fatalf("warning must state no object-store bytes are written: %q", warning.Reason)
-	}
-	if !strings.Contains(lower, "postgresql ciphertext") {
-		t.Fatalf("warning must name the default payload store used instead: %q", warning.Reason)
+	if document.Capabilities.ObjectStorePayloadBackend.ReasonCode != capabilities.ReasonObjectStorePayload {
+		t.Fatalf("object-store capability reason = %q", document.Capabilities.ObjectStorePayloadBackend.ReasonCode)
 	}
 }
 
-func TestValidateHardBlocksObjectStoreInProduction(t *testing.T) {
+func TestValidateBlocksObjectStoreOnEphemeralProfile(t *testing.T) {
 	result := capabilities.Validate(capabilities.Selection{
-		Profile:        capabilities.ProfilePostgres,
-		Production:     true,
+		Profile:        capabilities.ProfileMemory,
+		EvaluationMode: true,
 		PayloadBackend: capabilities.PayloadObjectStore,
 	})
 	if result.OK {
-		t.Fatal("object store must be hard-blocked in production")
+		t.Fatal("object store must require a durable profile")
 	}
-	if !hasReason(result.Errors, capabilities.ReasonExperimentalInProd) {
-		t.Fatalf("expected production hard-block, got %+v", result.Errors)
+	if !hasReason(result.Errors, capabilities.ReasonObjectStoreDurable) {
+		t.Fatalf("expected object_store_requires_durable_profile error, got %+v", result.Errors)
 	}
-	// The experimental-port reason code stays stable as a warning.
-	if !hasReason(result.Warnings, capabilities.ReasonExperimentalObjectPort) {
-		t.Fatalf("expected stable object_store_port_incomplete warning, got %+v", result.Warnings)
+	// The evaluation profile advertises the object-store backend as unsupported.
+	document, _ := capabilities.Lookup(capabilities.ProfileMemory)
+	if document.Capabilities.ObjectStorePayloadBackend.Supported {
+		t.Fatal("memory profile must not advertise a supported object-store payload backend")
 	}
 }
 

@@ -72,6 +72,12 @@
       "status": "supported",
       "reasonCode": "",
       "reason": "Dead jobs are surfaced and redriven by explicit operator action."
+    },
+    "objectStorePayloadBackend": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "object_store_payload_supported",
+      "reason": "Ciphertext may be stored in an S3-compatible object store; PostgreSQL keeps only the payload-free object locator, checksum, and key metadata. The 202 barrier requires the immutable object PUT plus the PostgreSQL commit. PostgreSQL-byte storage remains the default."
     }
   },
   "bounds": {

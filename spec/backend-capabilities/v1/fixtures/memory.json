@@ -72,6 +72,12 @@
       "status": "supported",
       "reasonCode": "",
       "reason": "Dead jobs can be redriven within the running process."
+    },
+    "objectStorePayloadBackend": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "The evaluation profile keeps ciphertext in memory and never writes durable object payloads."
     }
   },
   "bounds": {

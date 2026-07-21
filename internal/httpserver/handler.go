@@ -44,10 +44,33 @@ func newHandlerWithRoutes(readiness *Readiness, info buildinfo.Info, options Opt
 	}
 	mux.Handle("/healthz", statusHandler("ok", http.StatusOK, info, options.Durability, func() bool { return true }))
 	mux.Handle("/readyz", statusHandler("ready", http.StatusOK, info, options.Durability, ready))
+	if options.StatusProvider != nil {
+		mux.Handle("/statusz", statuszHandler(options.StatusProvider))
+	}
 	if options.Register != nil {
 		options.Register(mux)
 	}
 	return mux
+}
+
+// statuszHandler serves payload-free operator status JSON. It accepts only GET
+// and HEAD and never caches, matching the other operational probes.
+func statuszHandler(provider func() any) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = json.NewEncoder(w).Encode(provider())
+	})
 }
 
 func statusHandler(

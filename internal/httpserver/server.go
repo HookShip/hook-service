@@ -35,6 +35,10 @@ type Options struct {
 	ReadinessProbe func() bool
 	// Durability is surfaced in health/readiness responses (e.g. "ephemeral").
 	Durability string
+	// StatusProvider, when set, serves payload-free operator status JSON on
+	// /statusz (build info, backend selection, and runtime metrics). It must
+	// never return request bodies, payloads, secrets, or identifiers.
+	StatusProvider func() any
 }
 
 // New constructs a validated health-only server.

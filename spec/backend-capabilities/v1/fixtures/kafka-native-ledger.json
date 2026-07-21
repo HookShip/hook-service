@@ -72,6 +72,12 @@
       "status": "unsupported",
       "reasonCode": "native_queue_ledger_not_designed",
       "reason": "Undefined."
+    },
+    "objectStorePayloadBackend": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
     }
   },
   "bounds": {

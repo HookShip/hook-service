@@ -97,6 +97,41 @@ func (r *Repository) AdvanceTombstones(
 	return tag.RowsAffected(), nil
 }
 
+// PurgeTerminalOutbox deletes metadata_outbox rows that have reached a terminal
+// state (published or dead) and whose completion is older than the retention
+// horizon. The outbox is a leaf table, so bounded deletion is FK-safe. It caps
+// unbounded growth of the payload-free metadata outbox.
+func (r *Repository) PurgeTerminalOutbox(
+	ctx context.Context,
+	assignmentID string,
+	olderThan time.Time,
+	limit int,
+) (int64, error) {
+	if limit < 1 || limit > 10000 {
+		return 0, errors.New("outbox purge limit must be between 1 and 10000")
+	}
+	tag, err := r.pool.Exec(ctx, `
+		WITH candidates AS (
+			SELECT outbox_id
+			FROM metadata_outbox
+			WHERE assignment_id = $1
+			  AND state IN ('published', 'dead')
+			  AND completed_at IS NOT NULL
+			  AND completed_at <= $2
+			ORDER BY completed_at, outbox_id
+			FOR UPDATE SKIP LOCKED
+			LIMIT $3::integer
+		)
+		DELETE FROM metadata_outbox AS outbox
+		USING candidates
+		WHERE outbox.outbox_id = candidates.outbox_id
+	`, assignmentID, olderThan.UTC(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("purge terminal outbox: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (r *Repository) MarkExpiredObjectStagesOrphaned(
 	ctx context.Context,
 	assignmentID string,
