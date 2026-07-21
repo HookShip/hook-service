@@ -24,10 +24,38 @@ type Backend struct {
 	pool      *pgxpool.Pool
 	repo      *durable.Repository
 	sealer    runtime.PayloadSealer
+	store     runtime.PayloadStore
 	source    runtime.AssignmentSource
 	endpoints map[string]runtime.EndpointConfig
 	clock     runtime.Clock
+	ids       runtime.IDSource
 	ownsPool  bool
+}
+
+// Option customizes a PostgreSQL backend at construction.
+type Option func(*Backend)
+
+// WithPayloadStore selects the S3-compatible object-store payload backend as an
+// overlay on the durable profile: ciphertext bytes are written to the immutable
+// object store and the PostgreSQL ledger keeps only the object locator, hash,
+// and key metadata. Without this option the backend stores ciphertext bytes in
+// PostgreSQL, which remains the default.
+func WithPayloadStore(store runtime.PayloadStore) Option {
+	return func(b *Backend) {
+		if store != nil {
+			b.store = store
+		}
+	}
+}
+
+// WithIDSource overrides the identifier source used to mint internal
+// object-stage lease owners and tokens. It defaults to a ULID source.
+func WithIDSource(ids runtime.IDSource) Option {
+	return func(b *Backend) {
+		if ids != nil {
+			b.ids = ids
+		}
+	}
 }
 
 // New builds a PostgreSQL backend over an existing pool, registering each
@@ -40,6 +68,7 @@ func New(
 	sealer runtime.PayloadSealer,
 	clock runtime.Clock,
 	ownsPool bool,
+	opts ...Option,
 ) (*Backend, error) {
 	if pool == nil {
 		return nil, errors.New("postgres pool is required")
@@ -60,7 +89,11 @@ func New(
 		sealer:    sealer,
 		endpoints: make(map[string]runtime.EndpointConfig),
 		clock:     clock,
+		ids:       runtime.NewULIDSource(clock),
 		ownsPool:  ownsPool,
+	}
+	for _, opt := range opts {
+		opt(backend)
 	}
 
 	resolved := make([]runtime.Assignment, 0, len(assignments))
@@ -115,8 +148,17 @@ func (b *Backend) Name() string { return "postgres" }
 // Durable reports that accepted events survive a restart.
 func (b *Backend) Durable() bool { return true }
 
-// Ping verifies database liveness.
-func (b *Backend) Ping(ctx context.Context) error { return b.pool.Ping(ctx) }
+// Ping verifies database liveness, and object-store reachability when the
+// object-store payload overlay is active.
+func (b *Backend) Ping(ctx context.Context) error {
+	if err := b.pool.Ping(ctx); err != nil {
+		return err
+	}
+	if b.store != nil {
+		return b.store.Ping(ctx)
+	}
+	return nil
+}
 
 // Close releases the pool if this backend owns it.
 func (b *Backend) Close() {
@@ -170,8 +212,15 @@ func (b *Backend) ReserveIdempotency(ctx context.Context, request runtime.Reserv
 	}, nil
 }
 
-// Accept crosses the durable acceptance barrier atomically.
+// Accept crosses the durable acceptance barrier atomically. With the
+// object-store payload overlay active it stages the ciphertext, PUTs it to the
+// immutable object store, and finalizes before committing the ingest, ledger,
+// payload, and dispatch job; otherwise it commits ciphertext bytes directly in
+// PostgreSQL.
 func (b *Backend) Accept(ctx context.Context, request runtime.AcceptanceRequest) error {
+	if b.store != nil {
+		return b.acceptObject(ctx, request)
+	}
 	payloadExpiry := request.PayloadExpiresAt
 	if payloadExpiry.IsZero() {
 		payloadExpiry = request.AcceptedAt.Add(durable.MinimumRetryHorizon)
@@ -256,6 +305,9 @@ func (b *Backend) ClaimJob(ctx context.Context, assignmentID, kind, owner, token
 
 // LoadDelivery loads the committed delivery context for a claimed job.
 func (b *Backend) LoadDelivery(ctx context.Context, job runtime.Job) (runtime.DeliveryContext, error) {
+	if b.store != nil {
+		return b.loadObjectDelivery(ctx, job)
+	}
 	endpoint, ok := b.endpoints[job.EndpointSnapshotID]
 	if !ok {
 		return runtime.DeliveryContext{}, runtime.ErrNotFound
@@ -371,6 +423,68 @@ func (b *Backend) ReadyDispatch(ctx context.Context, limit int) ([]runtime.Job, 
 		out = append(out, toRuntimeJob(job))
 	}
 	return out, nil
+}
+
+// PayloadBackendName reports which payload store is active for status output:
+// "object-store" when the immutable object overlay is selected, else "postgres".
+func (b *Backend) PayloadBackendName() string {
+	if b.store != nil {
+		return "object-store"
+	}
+	return "postgres"
+}
+
+// PurgeExpiredNonces deletes expired replay-ledger nonces up to limit rows,
+// returning the number removed. It is safe to call repeatedly from a retention
+// worker.
+func (b *Backend) PurgeExpiredNonces(ctx context.Context, limit int) (int64, error) {
+	return b.repo.PurgeExpiredNonces(ctx, limit)
+}
+
+// AdvanceTombstones transitions committed idempotency ledgers whose retention
+// window elapsed into the tombstone state, freeing their payloads for deletion.
+func (b *Backend) AdvanceTombstones(ctx context.Context, assignmentID string, limit int) (int64, error) {
+	return b.repo.AdvanceTombstones(ctx, assignmentID, limit)
+}
+
+// MarkExpiredObjectStagesOrphaned orphans object-store payload stages that
+// expired before acceptance so their ciphertext objects can be reclaimed.
+func (b *Backend) MarkExpiredObjectStagesOrphaned(ctx context.Context, assignmentID string, limit int) (int64, error) {
+	return b.repo.MarkExpiredObjectStagesOrphaned(ctx, assignmentID, limit)
+}
+
+// ReclaimExpiredPayloads claims and deletes eligible expired payloads for an
+// assignment, removing object-store ciphertext (or nulling PostgreSQL ciphertext
+// bytes) under a fencing lease. It returns the number reclaimed in this pass so
+// the retention worker can drain in bounded batches.
+func (b *Backend) ReclaimExpiredPayloads(ctx context.Context, assignmentID string, limit int) (int, error) {
+	owner := b.ids.NewID("pdel")
+	reclaimed := 0
+	for i := 0; i < limit; i++ {
+		token := b.ids.NewID("pdtk")
+		lease, ok, err := b.repo.ClaimPayloadDeletion(ctx, assignmentID, owner, token, objectStageWriteLease)
+		if err != nil {
+			return reclaimed, err
+		}
+		if !ok {
+			break
+		}
+		if b.store != nil {
+			if err := b.deleteObjectPayloadObjects(ctx, lease); err != nil {
+				// Leave the payload leased; the next pass reclaims it once the
+				// lease expires. Never mark it deleted without removing the bytes.
+				return reclaimed, err
+			}
+		}
+		if err := b.repo.CompletePayloadDeletion(ctx, lease); err != nil {
+			if errors.Is(err, durable.ErrLeaseLost) {
+				continue
+			}
+			return reclaimed, err
+		}
+		reclaimed++
+	}
+	return reclaimed, nil
 }
 
 func mapLeaseError(err error) error {

@@ -19,6 +19,19 @@ type PayloadCiphertext struct {
 	CiphertextSHA256 Hash
 }
 
+// ObjectPayloadLocator is the committed object-store payload locator plus the
+// cryptographic metadata needed to fetch and decrypt the ciphertext inside a
+// worker operation. The database never holds the ciphertext bytes for an
+// object-store payload; only this payload-free locator is stored.
+type ObjectPayloadLocator struct {
+	FinalObjectKey   string
+	Nonce            []byte
+	KeyReference     string
+	KeyVersion       string
+	CiphertextSHA256 Hash
+	CiphertextSize   int64
+}
+
 // IngestStatusRow is the payload-free status of a committed ingest.
 type IngestStatusRow struct {
 	EventID              string
@@ -241,6 +254,38 @@ func (r *Repository) LoadPayloadCiphertext(
 	}
 	copy(payload.CiphertextSHA256[:], checksum)
 	return payload, nil
+}
+
+// LoadObjectPayloadLocator reads the committed object-store payload locator for
+// delivery. It returns ErrNotFound when no committed object payload exists for
+// the assignment, so a restarted worker on any replica can fetch the ciphertext
+// from the object store without depending on the accepting process.
+func (r *Repository) LoadObjectPayloadLocator(
+	ctx context.Context,
+	assignmentID, payloadID string,
+) (ObjectPayloadLocator, error) {
+	var locator ObjectPayloadLocator
+	var checksum []byte
+	err := r.pool.QueryRow(ctx, `
+		SELECT final_object_key, nonce, key_reference, key_version, ciphertext_sha256, ciphertext_size
+		FROM payload_records
+		WHERE assignment_id = $1 AND payload_id = $2 AND backend = 'object_store' AND state = 'committed'
+	`, assignmentID, payloadID).Scan(
+		&locator.FinalObjectKey,
+		&locator.Nonce,
+		&locator.KeyReference,
+		&locator.KeyVersion,
+		&checksum,
+		&locator.CiphertextSize,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ObjectPayloadLocator{}, ErrNotFound
+	}
+	if err != nil {
+		return ObjectPayloadLocator{}, fmt.Errorf("load object payload locator: %w", err)
+	}
+	copy(locator.CiphertextSHA256[:], checksum)
+	return locator, nil
 }
 
 // LoadIngestStatus reads the payload-free status of an ingest owned by the

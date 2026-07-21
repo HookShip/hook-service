@@ -23,6 +23,15 @@ var (
 	// ErrUnavailable reports that the acceptance barrier could not be crossed and
 	// the caller must return retryable 503 without a false success.
 	ErrUnavailable = errors.New("runtime: durable acceptance unavailable")
+	// ErrPayloadObjectNotFound reports that an immutable ciphertext object is
+	// absent from the PayloadStore. It is distinct from ErrNotFound so the
+	// delivery path can tell a missing object from a missing durable record.
+	ErrPayloadObjectNotFound = errors.New("runtime: payload object not found")
+	// ErrPayloadObjectConflict reports that an immutable object key already holds
+	// different bytes than the caller intended to write. Immutable keys are never
+	// overwritten, so this is always a caller or corruption error, never retried
+	// as backpressure.
+	ErrPayloadObjectConflict = errors.New("runtime: payload object immutability conflict")
 )
 
 // Job kinds used across the durable queue. The single-cell PostgreSQL model
@@ -79,6 +88,45 @@ type NonceLedger interface {
 type PayloadSealer interface {
 	Seal(plaintext []byte) (SealedPayload, error)
 	Open(sealed SealedPayload) ([]byte, error)
+}
+
+// ObjectPutResult reports the outcome of an immutable object PUT.
+type ObjectPutResult struct {
+	// Version is the provider-assigned version identifier (ETag or version id)
+	// for the written object. It may be empty when the store is unversioned; the
+	// object-store orchestration then substitutes a checksum-derived token so the
+	// durable ledger always records a non-empty provenance version.
+	Version string
+	// AlreadyExisted reports that an identical object was already present, so the
+	// PUT was a verified idempotent no-op rather than a first write.
+	AlreadyExisted bool
+}
+
+// PayloadStore is the immutable ciphertext object sink used by the object-store
+// payload backend. It is deliberately orthogonal to PayloadSealer: the sealer
+// turns plaintext into ciphertext and metadata; the store persists that opaque
+// ciphertext under a deterministic, payload-free object key. Plaintext never
+// reaches a PayloadStore, and the durable PostgreSQL ledger keeps only the
+// object locator, checksum, and key metadata — never the bytes. Implementations
+// must be safe for concurrent use.
+type PayloadStore interface {
+	// PutImmutable writes ciphertext to key. It is idempotent for identical
+	// bytes: writing the same checksum to the same key succeeds and reports
+	// AlreadyExisted without overwriting. Writing different bytes to an existing
+	// key must fail with ErrPayloadObjectConflict and never overwrite. checksum
+	// is the SHA-256 of data and is verified end to end.
+	PutImmutable(ctx context.Context, key string, data []byte, checksum Hash) (ObjectPutResult, error)
+	// Get reads and verifies the ciphertext at key. A missing object returns
+	// ErrPayloadObjectNotFound; a checksum mismatch returns a non-nil error and
+	// never returns unverified bytes.
+	Get(ctx context.Context, key string, checksum Hash) ([]byte, error)
+	// Delete removes the object at key. It is idempotent: deleting a missing
+	// object returns nil so orphan cleanup can run repeatedly.
+	Delete(ctx context.Context, key string) error
+	// Ping verifies the store and its bucket are reachable for readiness probes.
+	Ping(ctx context.Context) error
+	// Name identifies the store implementation for status and metrics.
+	Name() string
 }
 
 // IngestStore owns the acceptance barrier and status reads.

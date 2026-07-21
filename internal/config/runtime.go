@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +38,33 @@ const (
 	envDeliverLoopback   = "HOOKSHIP_DELIVERY_ALLOW_LOOPBACK"
 	envDeliverPrivate    = "HOOKSHIP_DELIVERY_ALLOW_PRIVATE"
 	envDeliverPlaintext  = "HOOKSHIP_DELIVERY_ALLOW_PLAINTEXT"
+
+	// Object-store payload backend configuration. These are required (and
+	// validated to fail closed) only when HOOKSHIP_PAYLOAD_BACKEND=object-store.
+	envObjectEndpoint  = "HOOKSHIP_PAYLOAD_OBJECT_ENDPOINT"
+	envObjectRegion    = "HOOKSHIP_PAYLOAD_OBJECT_REGION"
+	envObjectBucket    = "HOOKSHIP_PAYLOAD_OBJECT_BUCKET"
+	envObjectPathStyle = "HOOKSHIP_PAYLOAD_OBJECT_PATH_STYLE"
+	envObjectUseTLS    = "HOOKSHIP_PAYLOAD_OBJECT_USE_TLS"
+	envObjectCABundle  = "HOOKSHIP_PAYLOAD_OBJECT_CA_BUNDLE"
+	envObjectAccessKey = "HOOKSHIP_PAYLOAD_OBJECT_ACCESS_KEY_ID"
+	envObjectSecretKey = "HOOKSHIP_PAYLOAD_OBJECT_SECRET_ACCESS_KEY"
+	envObjectSession   = "HOOKSHIP_PAYLOAD_OBJECT_SESSION_TOKEN"
+
+	// Object-store key management. The default is a static local key; an
+	// aws-kms provider path is credential-gated and validated below.
+	envKeyProvider   = "HOOKSHIP_KEY_PROVIDER"
+	envKMSKeyID      = "HOOKSHIP_KMS_KEY_ID"
+	envKMSRegion     = "HOOKSHIP_KMS_REGION"
+	envKMSEndpoint   = "HOOKSHIP_KMS_ENDPOINT"
+	envKMSAccessKey  = "HOOKSHIP_KMS_ACCESS_KEY_ID"
+	envKMSSecretKey  = "HOOKSHIP_KMS_SECRET_ACCESS_KEY"
+	envKMSSession    = "HOOKSHIP_KMS_SESSION_TOKEN"
+	envKMSDataKeyB64 = "HOOKSHIP_KMS_WRAPPED_DATA_KEY"
+
+	payloadBackendObjectStore = "object-store"
+	keyProviderStatic         = "static"
+	keyProviderKMS            = "aws-kms"
 
 	defaultWorkerConcurrency = 4
 	defaultWorkerLease       = 30 * time.Second
@@ -73,7 +102,47 @@ type RuntimeConfig struct {
 	DeliveryAllowPrivate   bool
 	DeliveryAllowPlaintext bool
 
+	// ObjectStore holds the S3-compatible payload store settings. It is used and
+	// validated only when PayloadBackend == "object-store".
+	ObjectStore ObjectStoreSettings
+	// KeyProvider selects payload key management ("static" default, or
+	// "aws-kms"). KMS holds the AWS KMS provider settings.
+	KeyProvider string
+	KMS         KMSSettings
+
 	payloadKey []byte
+}
+
+// ObjectStoreSettings is the validated S3-compatible object-store configuration.
+// Credentials are never logged.
+type ObjectStoreSettings struct {
+	Endpoint        string
+	Region          string
+	Bucket          string
+	PathStyle       bool
+	UseTLS          bool
+	CABundlePath    string
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+}
+
+// Configured reports whether the minimum required object-store fields are set.
+func (o ObjectStoreSettings) Configured() bool {
+	return o.Endpoint != "" && o.Region != "" && o.Bucket != "" &&
+		o.AccessKeyID != "" && o.SecretAccessKey != ""
+}
+
+// KMSSettings is the AWS-compatible KMS key provider configuration. Credentials
+// are never logged.
+type KMSSettings struct {
+	KeyID           string
+	Region          string
+	Endpoint        string
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
+	WrappedDataKey  string
 }
 
 // Selected reports whether a native runtime profile was configured.
@@ -184,6 +253,33 @@ func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 		}
 		runtime.payloadKey = key
 	}
+
+	runtime.ObjectStore = ObjectStoreSettings{
+		Endpoint:        strings.TrimSpace(getenv(envObjectEndpoint)),
+		Region:          strings.TrimSpace(getenv(envObjectRegion)),
+		Bucket:          strings.TrimSpace(getenv(envObjectBucket)),
+		CABundlePath:    strings.TrimSpace(getenv(envObjectCABundle)),
+		AccessKeyID:     strings.TrimSpace(getenv(envObjectAccessKey)),
+		SecretAccessKey: strings.TrimSpace(getenv(envObjectSecretKey)),
+		SessionToken:    strings.TrimSpace(getenv(envObjectSession)),
+	}
+	if runtime.ObjectStore.PathStyle, err = boolFromEnv(getenv, envObjectPathStyle); err != nil {
+		return RuntimeConfig{}, err
+	}
+	if runtime.ObjectStore.UseTLS, err = boolFromEnv(getenv, envObjectUseTLS); err != nil {
+		return RuntimeConfig{}, err
+	}
+
+	runtime.KeyProvider = strings.TrimSpace(getenv(envKeyProvider))
+	runtime.KMS = KMSSettings{
+		KeyID:           strings.TrimSpace(getenv(envKMSKeyID)),
+		Region:          strings.TrimSpace(getenv(envKMSRegion)),
+		Endpoint:        strings.TrimSpace(getenv(envKMSEndpoint)),
+		AccessKeyID:     strings.TrimSpace(getenv(envKMSAccessKey)),
+		SecretAccessKey: strings.TrimSpace(getenv(envKMSSecretKey)),
+		SessionToken:    strings.TrimSpace(getenv(envKMSSession)),
+		WrappedDataKey:  strings.TrimSpace(getenv(envKMSDataKeyB64)),
+	}
 	return runtime, nil
 }
 
@@ -253,16 +349,89 @@ func (r RuntimeConfig) validateWithSelection(selection capabilities.Selection) e
 	}
 
 	document, _ := capabilities.Lookup(r.Backend)
-	if document.Properties.Durability != capabilities.DurabilityEphemeral && r.DatabaseURL == "" {
+	durable := document.Properties.Durability != capabilities.DurabilityEphemeral
+	if durable && r.DatabaseURL == "" {
 		return fmt.Errorf("%s requires %s", r.Backend, envDatabaseURL)
 	}
 	if len(r.payloadKey) != 0 && len(r.payloadKey) != payloadcrypto.KeySize {
 		return fmt.Errorf("%s must decode to %d bytes", envPayloadKey, payloadcrypto.KeySize)
 	}
-	if document.Properties.Durability != capabilities.DurabilityEphemeral && len(r.payloadKey) == 0 {
-		return fmt.Errorf("%s requires %s for durable payload encryption", r.Backend, envPayloadKey)
+	if err := r.validateKeyProvider(durable); err != nil {
+		return err
+	}
+	if err := r.validateObjectStore(durable); err != nil {
+		return err
 	}
 	return nil
+}
+
+// validateKeyProvider enforces the payload key-management selection. Durable
+// profiles require either a static local key or the AWS KMS provider so a
+// payload key always exists before startup.
+func (r RuntimeConfig) validateKeyProvider(durableProfile bool) error {
+	switch r.KeyProvider {
+	case "", keyProviderStatic:
+		if durableProfile && len(r.payloadKey) == 0 {
+			return fmt.Errorf("%s requires %s (or %s=%s) for durable payload encryption",
+				r.Backend, envPayloadKey, envKeyProvider, keyProviderKMS)
+		}
+	case keyProviderKMS:
+		if strings.TrimSpace(r.KMS.KeyID) == "" {
+			return fmt.Errorf("%s=%s requires %s", envKeyProvider, keyProviderKMS, envKMSKeyID)
+		}
+		if strings.TrimSpace(r.KMS.Region) == "" {
+			return fmt.Errorf("%s=%s requires %s", envKeyProvider, keyProviderKMS, envKMSRegion)
+		}
+		// Credentials may be supplied explicitly here; a KMS endpoint override
+		// (used by local fakes) requires them so production never falls back to
+		// ambient credentials silently.
+		if strings.TrimSpace(r.KMS.Endpoint) != "" &&
+			(strings.TrimSpace(r.KMS.AccessKeyID) == "" || strings.TrimSpace(r.KMS.SecretAccessKey) == "") {
+			return fmt.Errorf("%s with %s set requires %s and %s",
+				keyProviderKMS, envKMSEndpoint, envKMSAccessKey, envKMSSecretKey)
+		}
+	default:
+		return fmt.Errorf("%s must be %q or %q", envKeyProvider, keyProviderStatic, keyProviderKMS)
+	}
+	return nil
+}
+
+// validateObjectStore fails closed on an incomplete or unsafe object-store
+// payload configuration. It requires a durable profile and complete settings,
+// forbids non-loopback plaintext object transport in production, and verifies
+// any supplied CA bundle is readable.
+func (r RuntimeConfig) validateObjectStore(durableProfile bool) error {
+	if !r.UsesObjectStore() {
+		return nil
+	}
+	if !durableProfile {
+		return fmt.Errorf("%s=%s requires a durable backend profile", envPayloadBackend, payloadBackendObjectStore)
+	}
+	if !r.ObjectStore.Configured() {
+		return fmt.Errorf("%s=%s requires %s, %s, %s, %s, and %s",
+			envPayloadBackend, payloadBackendObjectStore,
+			envObjectEndpoint, envObjectRegion, envObjectBucket, envObjectAccessKey, envObjectSecretKey)
+	}
+	if !r.ObjectStore.UseTLS && r.Production() && !isLoopbackEndpoint(r.ObjectStore.Endpoint) {
+		return fmt.Errorf("%s must use TLS (%s=true) for a non-loopback endpoint in production",
+			payloadBackendObjectStore, envObjectUseTLS)
+	}
+	if path := strings.TrimSpace(r.ObjectStore.CABundlePath); path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("%s is not readable: %w", envObjectCABundle, err)
+		}
+	}
+	return nil
+}
+
+// UsesObjectStore reports whether the object-store payload backend is selected.
+func (r RuntimeConfig) UsesObjectStore() bool {
+	return r.PayloadBackend == payloadBackendObjectStore
+}
+
+// UsesKMS reports whether the AWS KMS key provider is selected.
+func (r RuntimeConfig) UsesKMS() bool {
+	return r.KeyProvider == keyProviderKMS
 }
 
 func decodeKey(value string) ([]byte, error) {
@@ -313,6 +482,33 @@ func isLoopbackBind(address string) bool {
 		return true
 	case "":
 		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// isLoopbackEndpoint reports whether an object-store endpoint URL or host:port
+// targets the loopback interface, so local MinIO over plaintext HTTP is allowed
+// while a remote plaintext endpoint fails closed in production.
+func isLoopbackEndpoint(endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return false
+	}
+	host := endpoint
+	if strings.Contains(endpoint, "://") {
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return false
+		}
+		host = parsed.Host
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSpace(host)
+	if host == "localhost" {
+		return true
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
