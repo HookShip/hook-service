@@ -4,35 +4,41 @@
 for HookShip. This repository establishes the process, operational, protocol,
 and single-cell durability boundaries needed before delivery execution.
 
-> **Status:** foundation, reviewed protocol v1, and an executable PostgreSQL
-> durability library. There is no public event-ingest handler, signing runtime,
-> outbound delivery worker, control-plane API, or cloud-provider integration.
+> **Status:** pre-release (`v0.x`). This repository now implements the outbound
+> delivery runtime: protocol-v1 authenticated ingest, idempotent durable
+> acceptance, Standard Webhooks-compatible signing, an SSRF-safe delivery
+> worker with retries/DLQ, payload-free status, and selectable native backend
+> profiles (`memory`, `postgres`, `postgres-redis`, `postgres-kafka`). It has
+> not been released or independently audited, and it makes no availability,
+> throughput, or service-level claims. PostgreSQL is the source of truth for
+> the durable profiles; delivery is at-least-once (never exactly-once).
 
-## Current surface
+## Surface
 
-- `hookshipd`: a minimal HTTP process with bounded server timeouts, validated
-  environment configuration, structured logs, health/readiness endpoints, and
-  graceful shutdown.
-- `hookshipctl`: local version reporting and bounded health/readiness
-  diagnostics.
-- Reproducible build metadata, tests, container packaging, CI, and public
-  project documentation.
+- `hookshipd`: one binary with explicit modes — `api` (ingest and status),
+  `worker` (dispatch, retry, DLQ, metadata outbox), and `all` (single process).
+  It also prints machine-readable backend capabilities.
+- `hookshipctl`: `version`, `diagnostics`, `doctor`, `migrate`, and
+  `backend list|describe|validate`.
+- Protocol-v1 producer data plane: exact-body HMAC authentication, nonce replay
+  protection, assignment authorization, idempotent acceptance across the
+  durability barrier, and payload-free `GET` status, all returning bounded
+  RFC 9457 problem responses.
+- SSRF-safe delivery worker: DNS pinning, private/link-local/metadata rejection,
+  redirect refusal, TLS verification, bounded timeouts and response discard,
+  Standard Webhooks signing over exact payload bytes, retry classification with
+  exponential backoff and jitter, circuit breaking, dead-letter queue, and
+  explicit operator redrive.
+- Selectable native backend profiles with a versioned, machine-readable
+  capability schema and stable reason codes. See
+  [`docs/backends.md`](docs/backends.md).
 - `spec/v1`: the source-of-truth contract for producer event ingestion,
-  payload-free status, signing, errors, compatibility, and future
-  configuration/fleet boundaries.
+  payload-free status, inbound signing, errors, and compatibility.
 - `internal/durability/postgres`: forward-only PostgreSQL 17+ migrations and a
-  narrow pgx v5 repository for idempotency, encrypted payload metadata,
-  immutable delivery configuration, dispatch jobs, attempts, and metadata
-  outbox leases. Lease ownership and payload deletion fencing use the
-  PostgreSQL clock; object writes use versioned attempt identities and fenced
-  conditional finalization.
+  narrow pgx v5 repository for the durable profiles.
 
-The operational endpoints are:
-
-- `GET` or `HEAD /healthz`
-- `GET` or `HEAD /readyz`
-
-They are process-level probes, not a webhook delivery API.
+Operational probes remain `GET`/`HEAD /healthz` and `GET`/`HEAD /readyz`;
+readiness reflects backend health and reports the profile durability.
 
 ## Quick start
 
@@ -61,35 +67,57 @@ configuration choice:
 HOOKSHIP_LISTEN_ADDRESS=0.0.0.0:8080 ./bin/hookshipd
 ```
 
-The optional Compose evaluation profile binds the published port to the host
-loopback and defines a deployment-specific healthcheck:
+The optional Compose profiles run the delivery vertical slice locally. One
+command demonstrates accept -> signed delivery -> retry/DLQ -> status:
 
 ```sh
+# Ephemeral evaluation profile (memory backend, no PostgreSQL):
+docker compose --profile memory up --build
+
+# Durable evaluation profile (PostgreSQL + migration + api + worker + sink):
 docker compose --profile evaluation up --build
+
+# Or run the scripted demo (memory|evaluation|redis|kafka; add "retry" to
+# exercise retry/DLQ):
+scripts/demo.sh memory
+scripts/demo.sh evaluation retry
 ```
+
+The `redis` and `kafka` profiles add their real services and a transactional
+dispatch relay. PostgreSQL remains the source of truth and the acceptance
+barrier in every durable profile.
 
 The image does not bake in a fixed-port healthcheck. Deployments that override
 the listener must define a matching probe.
 
 ## Design boundaries
 
-- Standard library first; pgx v5 is the only direct Go dependency.
-- No request or payload logging.
-- No implicit public network exposure.
-- PostgreSQL is the durable queue; there is no database-plus-broker dual write.
-- Stored payload bytes are ciphertext only.
-- No public ingest or delivery runtime before its separately reviewed phase.
-- No availability, throughput, or service-level claims.
+- Standard library first; direct Go dependencies are pinned and verified
+  (`pgx/v5`, `yaml.v3`, and the Redis/Kafka clients used only by their profiles).
+- No request or payload logging; attempts, outbox rows, status, and metadata
+  are payload-free.
+- No implicit public network exposure; non-loopback plaintext fails closed
+  unless an operator asserts an explicit proxy boundary.
+- PostgreSQL is the durable queue and source of truth; Redis/Kafka carry only
+  advisory dispatch signals derived from committed state, so there is no
+  database-plus-queue dual write.
+- Stored payload bytes are AES-256-GCM ciphertext only.
+- At-least-once delivery; downstream idempotency remains necessary.
+- No availability, throughput, or service-level claims; no invented domains,
+  registries, or contacts.
 
-See [`docs/durability.md`](docs/durability.md), [`spec/README.md`](spec/README.md),
-[`spec/v1/`](spec/v1/), and [`docs/architecture.md`](docs/architecture.md).
+See [`docs/backends.md`](docs/backends.md), [`docs/durability.md`](docs/durability.md),
+[`spec/README.md`](spec/README.md), [`spec/v1/`](spec/v1/), and
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Documentation
 
 - [Configuration](docs/configuration.md)
 - [Operations](docs/operations.md)
 - [Architecture](docs/architecture.md)
+- [Backend profiles and capabilities](docs/backends.md)
 - [Durability model](docs/durability.md)
+- [Architecture decision records](docs/adr/)
 - [Development](docs/development.md)
 - [Provenance](docs/provenance.md)
 - [Security policy](SECURITY.md)

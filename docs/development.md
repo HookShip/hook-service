@@ -36,6 +36,26 @@ The target fails when the variable is absent. Tests create and drop isolated
 schemas, apply migrations from zero, and require PostgreSQL 17 or newer. Use a
 disposable database role with schema creation rights.
 
+The shared runtime contract suite runs against the `memory` backend (unit) and
+the `postgres` backend (integration). The relay integration tests run when the
+optional broker variables are set:
+
+```sh
+export REDIS_URL='redis://127.0.0.1:6379/0'
+export KAFKA_BROKERS='127.0.0.1:9092'
+go test -tags=integration ./internal/backend/relay/...
+```
+
+Relay codec, relayer, and notifier behavior is covered by zero-skip unit tests
+regardless of broker availability.
+
+Run the local delivery demo (builds images; requires Docker):
+
+```sh
+scripts/demo.sh memory
+scripts/demo.sh evaluation retry
+```
+
 Build metadata can be overridden:
 
 ```sh

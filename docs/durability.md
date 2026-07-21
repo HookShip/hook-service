@@ -26,7 +26,12 @@ The schema stores:
 - delivery and immutable bounded attempt lineage;
 - dispatch jobs and payload-free metadata outbox rows with leases and fencing.
 
-There is no broker dual write. PostgreSQL is the durable queue.
+There is no broker dual write. PostgreSQL is the durable queue. A replay-
+protection nonce ledger (`(credential_id, nonce)`) was added as an additive
+forward migration (`000002_nonce_ledger`); it does not alter any existing
+acceptance semantics. Redis/Kafka profiles publish only advisory dispatch
+signals derived from committed jobs — see
+[`adr/0007-dispatch-relays-no-dual-write.md`](adr/0007-dispatch-relays-no-dual-write.md).
 
 ## Acceptance transaction
 

@@ -2,10 +2,12 @@
 
 ## Purpose
 
-This repository is intended to become HookShip's portable outbound webhook
-delivery data plane. It currently provides a process boundary, reviewed
-protocol boundary, and executable single-cell PostgreSQL durability model;
-public ingest and delivery runtime work remain unimplemented.
+This repository is HookShip's portable outbound webhook delivery data plane. It
+provides a process boundary, a reviewed protocol boundary, an executable
+single-cell PostgreSQL durability model, and — in this release — the delivery
+runtime: authenticated ingest, durable idempotent acceptance, Standard
+Webhooks-compatible signing, an SSRF-safe delivery worker with retries and a
+dead-letter queue, payload-free status, and selectable native backend profiles.
 
 ## Current components
 
@@ -36,10 +38,27 @@ future ingest/runtime ──pgx──> one PostgreSQL 17+ regional cell
   versioned stage-write attempt identities, payload-deletion recovery, and
   retention transitions. It is not wired into `hookshipd` yet.
 
-There is intentionally no delivery request handler, outbound worker, signing
-runtime, control-plane client, object-store provider, or cloud integration.
-PostgreSQL jobs and outbox rows are the durable scheduling primitives, not an
-active worker implementation.
+- `internal/runtime` defines the backend-agnostic ports (assignment/credential
+  source, nonce ledger, payload sealer, acceptance store, durable queue with
+  fencing, metadata outbox, diagnostics/redrive, clock, and IDs). `internal/
+  capabilities` owns the versioned backend capability schema.
+- `internal/backend/{memory,postgres,relay}` implement the profiles; the
+  `postgres` backend wraps `internal/durability/postgres`. `internal/ingest`,
+  `internal/worker`, `internal/signing`, `internal/transport`, and
+  `internal/outboxsink` implement the protocol handlers and delivery loop
+  against the ports.
+- `cmd/hookshipd` runs the `api`, `worker`, and `all` modes; `cmd/hookshipctl`
+  adds `migrate`, `doctor`, and `backend` operator commands.
+- `internal/durability/postgres` owns forward-only migrations, migration
+  checksum enforcement, assignment-scoped persistence, atomic acceptance,
+  restart-readable object staging metadata, database-clock leases, fencing,
+  the replay-protection nonce ledger, payload-deletion recovery, and retention
+  transitions.
+
+The S3-compatible object-store payload backend and cloud KMS/HSM integrations
+are intentionally not wired into the runtime; PostgreSQL ciphertext is the
+supported durable payload store. The object-store staging protocol exists in
+the durability package and is declared `experimental` in the capability schema.
 
 ## Protocol channels
 
