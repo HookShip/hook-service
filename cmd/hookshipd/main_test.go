@@ -71,3 +71,31 @@ func TestRunRejectsInvalidConfiguration(t *testing.T) {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
+
+func TestRunCheckConfigRejectsPartialTLSPair(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		args []string
+		env  map[string]string
+	}{
+		{"bare cert only", nil, map[string]string{"HOOKSHIP_BACKEND": "postgres", "HOOKSHIP_TLS_CERT": "/c"}},
+		{"api key only", []string{"api"}, map[string]string{"HOOKSHIP_BACKEND": "postgres", "HOOKSHIP_TLS_KEY": "/k"}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			args := append(append([]string{}, tc.args...), "-check-config")
+			code := run(context.Background(), args, func(name string) string { return tc.env[name] }, &stdout, &stderr)
+			if code != 2 {
+				t.Fatalf("code = %d, want 2; stderr=%s", code, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "configured together") {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}

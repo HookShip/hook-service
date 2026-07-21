@@ -31,6 +31,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runVersion(args[1:], stdout, stderr)
 	case "diagnostics":
 		return runDiagnostics(ctx, args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "migrate":
+		return runMigrate(ctx, args[1:], os.Getenv, stdout, stderr)
+	case "backend":
+		return runBackend(args[1:], os.Getenv, stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -154,6 +160,7 @@ func writeProbeText(output io.Writer, result diagnostics.ProbeResult) {
 
 func writeJSON(output io.Writer, value any) error {
 	encoder := json.NewEncoder(output)
+	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
 }
@@ -181,6 +188,11 @@ func printUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, "Usage: hookshipctl <command> [options]")
 	_, _ = fmt.Fprintln(output, "")
 	_, _ = fmt.Fprintln(output, "Commands:")
-	_, _ = fmt.Fprintln(output, "  diagnostics  Probe hookshipd health and readiness")
-	_, _ = fmt.Fprintln(output, "  version      Print build metadata")
+	_, _ = fmt.Fprintln(output, "  diagnostics        Probe hookshipd health and readiness")
+	_, _ = fmt.Fprintln(output, "  doctor             Validate configuration and backend selection")
+	_, _ = fmt.Fprintln(output, "  migrate            Apply PostgreSQL durability migrations")
+	_, _ = fmt.Fprintln(output, "  backend list       List native runtime profiles and capabilities")
+	_, _ = fmt.Fprintln(output, "  backend describe   Describe one profile's capability document")
+	_, _ = fmt.Fprintln(output, "  backend validate   Validate a backend selection")
+	_, _ = fmt.Fprintln(output, "  version            Print build metadata")
 }
