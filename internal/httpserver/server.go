@@ -3,6 +3,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/hookship/hook-service/internal/buildinfo"
 	"github.com/hookship/hook-service/internal/config"
@@ -21,10 +23,27 @@ type Server struct {
 	logger     *slog.Logger
 	readiness  *Readiness
 	httpServer *http.Server
+	tlsEnabled bool
+	boundAddr  atomic.Pointer[string]
 }
 
-// New constructs a validated server.
+// Options configures optional profile routes and readiness behavior.
+type Options struct {
+	// Register mounts profile routes (e.g. the ingest handler) on the mux.
+	Register func(*http.ServeMux)
+	// ReadinessProbe reports backend health for /readyz.
+	ReadinessProbe func() bool
+	// Durability is surfaced in health/readiness responses (e.g. "ephemeral").
+	Durability string
+}
+
+// New constructs a validated health-only server.
 func New(cfg config.Config, logger *slog.Logger, info buildinfo.Info) (*Server, error) {
+	return NewWithOptions(cfg, logger, info, Options{})
+}
+
+// NewWithOptions constructs a validated server with optional profile routes.
+func NewWithOptions(cfg config.Config, logger *slog.Logger, info buildinfo.Info, options Options) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate server configuration: %w", err)
 	}
@@ -40,7 +59,7 @@ func New(cfg config.Config, logger *slog.Logger, info buildinfo.Info) (*Server, 
 	}
 	server.httpServer = &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           newHandler(readiness, info),
+		Handler:           newHandlerWithRoutes(readiness, info, options),
 		ReadHeaderTimeout: cfg.ReadHeader,
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
@@ -48,7 +67,35 @@ func New(cfg config.Config, logger *slog.Logger, info buildinfo.Info) (*Server, 
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 		ErrorLog:          log.New(slogWriter{logger: logger}, "", 0),
 	}
+
+	// Direct TLS termination: load and validate the certificate/key pair now so
+	// a misconfiguration fails fast at construction rather than serving
+	// plaintext. Configuration validation already rejects a partial pair.
+	if cfg.Runtime.HasTLS() {
+		certificate, err := tls.LoadX509KeyPair(cfg.Runtime.TLSCertFile, cfg.Runtime.TLSKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load TLS certificate/key: %w", err)
+		}
+		server.httpServer.TLSConfig = &tls.Config{
+			MinVersion:   tls.VersionTLS12,
+			Certificates: []tls.Certificate{certificate},
+		}
+		server.tlsEnabled = true
+	}
 	return server, nil
+}
+
+// TLSEnabled reports whether the server terminates TLS directly.
+func (s *Server) TLSEnabled() bool { return s.tlsEnabled }
+
+// Addr returns the bound listen address once Run has started, or an empty
+// string before then. It is primarily useful for tests binding an ephemeral
+// port.
+func (s *Server) Addr() string {
+	if value := s.boundAddr.Load(); value != nil {
+		return *value
+	}
+	return ""
 }
 
 // Run listens until the context is canceled or the HTTP server fails.
@@ -59,13 +106,22 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	serveErrors := make(chan error, 1)
+	boundAddr := listener.Addr().String()
+	s.boundAddr.Store(&boundAddr)
 	s.readiness.Set(true)
 	s.logger.Info(
 		"http server started",
-		slog.String("address", listener.Addr().String()),
+		slog.String("address", boundAddr),
+		slog.Bool("tls", s.tlsEnabled),
 		slog.Int("max_header_bytes", s.config.MaxHeaderBytes),
 	)
 	go func() {
+		if s.tlsEnabled {
+			// The certificate is preloaded into TLSConfig, so empty file
+			// arguments reuse it rather than re-reading from disk.
+			serveErrors <- s.httpServer.ServeTLS(listener, "", "")
+			return
+		}
 		serveErrors <- s.httpServer.Serve(listener)
 	}()
 

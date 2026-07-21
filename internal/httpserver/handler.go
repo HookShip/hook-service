@@ -24,15 +24,29 @@ func (r *Readiness) Ready() bool {
 }
 
 type statusResponse struct {
-	Status  string `json:"status"`
-	Service string `json:"service"`
-	Version string `json:"version"`
+	Status     string `json:"status"`
+	Service    string `json:"service"`
+	Version    string `json:"version"`
+	Durability string `json:"durability,omitempty"`
 }
 
 func newHandler(readiness *Readiness, info buildinfo.Info) http.Handler {
+	return newHandlerWithRoutes(readiness, info, Options{})
+}
+
+// newHandlerWithRoutes builds the operational mux plus any profile routes.
+func newHandlerWithRoutes(readiness *Readiness, info buildinfo.Info, options Options) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", statusHandler("ok", http.StatusOK, info, func() bool { return true }))
-	mux.Handle("/readyz", statusHandler("ready", http.StatusOK, info, readiness.Ready))
+	ready := readiness.Ready
+	if options.ReadinessProbe != nil {
+		probe := options.ReadinessProbe
+		ready = func() bool { return readiness.Ready() && probe() }
+	}
+	mux.Handle("/healthz", statusHandler("ok", http.StatusOK, info, options.Durability, func() bool { return true }))
+	mux.Handle("/readyz", statusHandler("ready", http.StatusOK, info, options.Durability, ready))
+	if options.Register != nil {
+		options.Register(mux)
+	}
 	return mux
 }
 
@@ -40,6 +54,7 @@ func statusHandler(
 	successStatus string,
 	successCode int,
 	info buildinfo.Info,
+	durability string,
 	available func() bool,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,26 +65,29 @@ func statusHandler(
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			writeStatus(w, r, http.StatusMethodNotAllowed, statusResponse{
-				Status:  "method_not_allowed",
-				Service: "hookshipd",
-				Version: info.Version,
+				Status:     "method_not_allowed",
+				Service:    "hookshipd",
+				Version:    info.Version,
+				Durability: durability,
 			})
 			return
 		}
 
 		if !available() {
 			writeStatus(w, r, http.StatusServiceUnavailable, statusResponse{
-				Status:  "not_ready",
-				Service: "hookshipd",
-				Version: info.Version,
+				Status:     "not_ready",
+				Service:    "hookshipd",
+				Version:    info.Version,
+				Durability: durability,
 			})
 			return
 		}
 
 		writeStatus(w, r, successCode, statusResponse{
-			Status:  successStatus,
-			Service: "hookshipd",
-			Version: info.Version,
+			Status:     successStatus,
+			Service:    "hookshipd",
+			Version:    info.Version,
+			Durability: durability,
 		})
 	})
 }
