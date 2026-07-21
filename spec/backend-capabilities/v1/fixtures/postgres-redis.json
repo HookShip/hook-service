@@ -1,0 +1,95 @@
+{
+  "$schema": "urn:hookship:backend-capabilities:v1",
+  "schemaVersion": "backend_capabilities/v1",
+  "kind": "backend_capability",
+  "profile": "postgres-redis",
+  "properties": {
+    "displayName": "PostgreSQL + Redis",
+    "summary": "PostgreSQL source of truth with a Redis Streams dispatch relay for lower latency.",
+    "evaluationOnly": false,
+    "status": "supported",
+    "reasonCode": "transactional_outbox_relay",
+    "reason": "PostgreSQL remains the acceptance barrier; Redis Streams only carry dispatch notifications derived from a transactional outbox.",
+    "stateBackend": "postgres",
+    "dispatchQueue": "redis streams (from transactional outbox)",
+    "payloadBackend": "postgres ciphertext",
+    "durability": "replicated",
+    "consistency": "strong",
+    "deliverySemantics": "at_least_once",
+    "ordering": "endpoint",
+    "orderingNote": "PostgreSQL claim ordering preserved; Redis stream is a wake-up notification, not the ordering authority.",
+    "retentionHorizon": "24h0m0s",
+    "delayedRetryStrategy": "native run_at query with Redis wake-up",
+    "failureRecovery": "loss of Redis is recoverable by replaying unacknowledged outbox rows; no dual write.",
+    "operationalComplexity": "medium",
+    "typicalUse": "small/medium low-latency delivery"
+  },
+  "capabilities": {
+    "acknowledgementBarrier": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "protocol_v1_durable",
+      "reason": "Ingest, ledger, payload, and dispatch job commit in one transaction."
+    },
+    "durableProtocolV1Acknowledgement": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "protocol_v1_durable",
+      "reason": "202 is returned only after the four artifacts are durable."
+    },
+    "restartRecovery": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "transactional_outbox_relay",
+      "reason": "PostgreSQL recovers fully; the Redis stream is rebuilt by replaying unpublished outbox rows."
+    },
+    "durableIdempotency": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "protocol_v1_durable",
+      "reason": "Idempotency ledger is durable for the full retry horizon."
+    },
+    "leaseFencing": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "Database-clock leases with fencing tokens prevent stale settlement."
+    },
+    "multiReplicaSafe": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "SKIP LOCKED claims allow multiple API/worker replicas."
+    },
+    "multiProcessSafe": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "Multiple worker processes claim safely."
+    },
+    "replayRedrive": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "Dead jobs are surfaced and redriven by explicit operator action."
+    }
+  },
+  "bounds": {
+    "maxPayloadBytes": 16777216,
+    "maxAssignments": 0,
+    "maxInFlightJobs": 100000,
+    "testedThroughputPerSec": 0
+  },
+  "requirements": {
+    "backupRequirement": "PostgreSQL physical or logical backup of the cell database.",
+    "requiredExternalServices": [
+      "postgresql>=17",
+      "redis>=7"
+    ],
+    "deploymentModes": [
+      "developer",
+      "single_vm",
+      "managed_cell"
+    ]
+  }
+}

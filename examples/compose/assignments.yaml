@@ -1,0 +1,24 @@
+# Assignment/credential source for the durable Compose profiles (evaluation,
+# redis, kafka). It uses the well-known public evaluation credential and signing
+# secret; these are test material and must never be used in production.
+#
+# The endpoint delivers to the local-sink container on the trusted Compose
+# network. Delivering to a private container address requires the explicit
+# HOOKSHIP_DELIVERY_ALLOW_PRIVATE opt-in set on the worker service.
+backend: postgres
+evaluationMode: false
+payloadBackend: postgres
+assignments:
+  - id: asg_evaluation_local
+    credentialId: cred_test_01
+    hmacSecret: hex:000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+    environment: production
+    routes: [orders.primary, evaluation.default]
+    maxBodyBytes: 65536
+    endpoint:
+      id: ep_evaluation_sink
+      url: http://local-sink:9099/sink
+      signingSecret: whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA=
+      configGeneration: 1
+      maxAttempts: 6
+      timeoutSeconds: 10

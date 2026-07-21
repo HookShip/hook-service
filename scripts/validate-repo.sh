@@ -30,7 +30,16 @@ internal/durability/postgres/migrations/README.md
 internal/durability/postgres/migrations/checksums.txt
 requirements-spec.txt
 scripts/validate-jsonschema.py
+scripts/validate-backend-capabilities.py
 spec/README.md
+spec/backend-capabilities/v1/README.md
+spec/backend-capabilities/v1/schema.json
+spec/backend-capabilities/v1/checksums.txt
+spec/backend-capabilities/v1/fixtures/memory.json
+spec/backend-capabilities/v1/fixtures/postgres.json
+spec/backend-capabilities/v1/fixtures/postgres-redis.json
+spec/backend-capabilities/v1/fixtures/postgres-kafka.json
+spec/backend-capabilities/v1/fixtures/kafka-native-ledger.json
 spec/v1/README.md
 spec/v1/compatibility.md
 spec/v1/configuration.md

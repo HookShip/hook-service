@@ -31,7 +31,10 @@ test:
 test-integration:
 	@test -n "$$TEST_DATABASE_URL" || \
 		{ echo "TEST_DATABASE_URL is required for make test-integration" >&2; exit 1; }
-	$(GO) test -count=1 -tags=integration ./internal/durability/postgres
+	$(GO) test -count=1 -tags=integration \
+		./internal/durability/postgres \
+		./internal/backend/postgres \
+		./internal/backend/relay
 
 test-race:
 	$(GO) test -race ./...

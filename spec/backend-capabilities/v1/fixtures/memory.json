@@ -1,0 +1,90 @@
+{
+  "$schema": "urn:hookship:backend-capabilities:v1",
+  "schemaVersion": "backend_capabilities/v1",
+  "kind": "backend_capability",
+  "profile": "memory",
+  "properties": {
+    "displayName": "Memory",
+    "summary": "Process-local ephemeral backend for tests, demos, and evaluation.",
+    "evaluationOnly": true,
+    "status": "supported",
+    "reasonCode": "ephemeral_evaluation_only",
+    "reason": "Fully functional for evaluation but loses accepted events on restart; never durable.",
+    "stateBackend": "memory",
+    "dispatchQueue": "memory",
+    "payloadBackend": "memory",
+    "durability": "ephemeral",
+    "consistency": "process_local",
+    "deliverySemantics": "at_least_once",
+    "ordering": "none",
+    "orderingNote": "Process-local timer scheduling; no cross-endpoint ordering guarantee.",
+    "retentionHorizon": "process lifetime (bounded TTL)",
+    "delayedRetryStrategy": "in-process timer",
+    "failureRecovery": "none; a restart is a clean slate by design.",
+    "operationalComplexity": "minimal",
+    "typicalUse": "tests and demos"
+  },
+  "capabilities": {
+    "acknowledgementBarrier": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "Acceptance is in-memory only; a restart loses accepted events."
+    },
+    "durableProtocolV1Acknowledgement": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "Ephemeral state cannot provide protocol-v1 durable acknowledgement."
+    },
+    "restartRecovery": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "All state is process-local and disappears on restart."
+    },
+    "durableIdempotency": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "Idempotency ledger is bounded and process-local."
+    },
+    "leaseFencing": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "In-process fencing tokens prevent stale settlement within one process."
+    },
+    "multiReplicaSafe": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "State is not shared across processes or replicas."
+    },
+    "multiProcessSafe": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "ephemeral_evaluation_only",
+      "reason": "State is not shared across processes."
+    },
+    "replayRedrive": {
+      "supported": true,
+      "status": "supported",
+      "reasonCode": "",
+      "reason": "Dead jobs can be redriven within the running process."
+    }
+  },
+  "bounds": {
+    "maxPayloadBytes": 1048576,
+    "maxAssignments": 256,
+    "maxInFlightJobs": 10000,
+    "testedThroughputPerSec": 0
+  },
+  "requirements": {
+    "backupRequirement": "none (ephemeral)",
+    "requiredExternalServices": [],
+    "deploymentModes": [
+      "developer"
+    ]
+  }
+}

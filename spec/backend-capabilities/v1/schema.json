@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hookship:backend-capabilities:v1",
+  "title": "HookShip backend capability document",
+  "description": "Authoritative, versioned capability document for one native runtime profile. Emitted by `hookshipd capabilities` and `hookshipctl backend describe`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "kind",
+    "profile",
+    "properties",
+    "capabilities",
+    "bounds",
+    "requirements"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "urn:hookship:backend-capabilities:v1"
+    },
+    "schemaVersion": {
+      "const": "backend_capabilities/v1"
+    },
+    "kind": {
+      "const": "backend_capability"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "displayName",
+        "summary",
+        "evaluationOnly",
+        "status",
+        "reasonCode",
+        "reason",
+        "stateBackend",
+        "dispatchQueue",
+        "payloadBackend",
+        "durability",
+        "consistency",
+        "deliverySemantics",
+        "ordering",
+        "orderingNote",
+        "retentionHorizon",
+        "delayedRetryStrategy",
+        "failureRecovery",
+        "operationalComplexity",
+        "typicalUse"
+      ],
+      "properties": {
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "evaluationOnly": { "type": "boolean" },
+        "status": { "$ref": "#/$defs/status" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
+        "reason": { "type": "string", "maxLength": 400 },
+        "stateBackend": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "dispatchQueue": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "payloadBackend": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "durability": { "$ref": "#/$defs/durability" },
+        "consistency": { "$ref": "#/$defs/consistency" },
+        "deliverySemantics": { "$ref": "#/$defs/deliverySemantics" },
+        "ordering": { "$ref": "#/$defs/ordering" },
+        "orderingNote": { "type": "string", "maxLength": 200 },
+        "retentionHorizon": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "delayedRetryStrategy": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "failureRecovery": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "operationalComplexity": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "typicalUse": { "type": "string", "minLength": 1, "maxLength": 80 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acknowledgementBarrier",
+        "durableProtocolV1Acknowledgement",
+        "restartRecovery",
+        "durableIdempotency",
+        "leaseFencing",
+        "multiReplicaSafe",
+        "multiProcessSafe",
+        "replayRedrive"
+      ],
+      "properties": {
+        "acknowledgementBarrier": { "$ref": "#/$defs/capability" },
+        "durableProtocolV1Acknowledgement": { "$ref": "#/$defs/capability" },
+        "restartRecovery": { "$ref": "#/$defs/capability" },
+        "durableIdempotency": { "$ref": "#/$defs/capability" },
+        "leaseFencing": { "$ref": "#/$defs/capability" },
+        "multiReplicaSafe": { "$ref": "#/$defs/capability" },
+        "multiProcessSafe": { "$ref": "#/$defs/capability" },
+        "replayRedrive": { "$ref": "#/$defs/capability" }
+      }
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxPayloadBytes",
+        "maxAssignments",
+        "maxInFlightJobs",
+        "testedThroughputPerSec"
+      ],
+      "properties": {
+        "maxPayloadBytes": { "type": "integer", "minimum": 0 },
+        "maxAssignments": { "type": "integer", "minimum": 0 },
+        "maxInFlightJobs": { "type": "integer", "minimum": 0 },
+        "testedThroughputPerSec": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backupRequirement",
+        "requiredExternalServices",
+        "deploymentModes"
+      ],
+      "properties": {
+        "backupRequirement": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "requiredExternalServices": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "deploymentModes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/deploymentMode" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": ["supported", "experimental", "degraded", "unsupported"]
+    },
+    "durability": {
+      "type": "string",
+      "enum": ["ephemeral", "disk", "replicated"]
+    },
+    "consistency": {
+      "type": "string",
+      "enum": ["process_local", "strong", "eventual"]
+    },
+    "deliverySemantics": {
+      "type": "string",
+      "enum": ["at_least_once", "at_most_once"]
+    },
+    "ordering": {
+      "type": "string",
+      "enum": ["none", "endpoint", "assignment", "partition"]
+    },
+    "deploymentMode": {
+      "type": "string",
+      "enum": ["developer", "single_vm", "managed_cell"]
+    },
+    "reasonCode": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[a-z0-9_]*$"
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supported", "status", "reasonCode", "reason"],
+      "properties": {
+        "supported": { "type": "boolean" },
+        "status": { "$ref": "#/$defs/status" },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 400 }
+      }
+    }
+  }
+}

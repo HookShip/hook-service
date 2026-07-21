@@ -56,8 +56,18 @@ jobs:
           --health-interval 2s
           --health-timeout 2s
           --health-retries 20
+      redis:
+        image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://hookship:hookship_test@127.0.0.1:5432/hookship_test?sslmode=disable
+      REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

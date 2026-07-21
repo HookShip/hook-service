@@ -1,35 +1,270 @@
-name: hookship-evaluation
+name: hookship
+
+# HookShip delivery service Compose stack.
+#
+# Profiles:
+#   memory      - hookshipd all + local sink, no PostgreSQL (ephemeral, evaluation)
+#   evaluation  - PostgreSQL + migration + api + worker + local sink (durable)
+#   redis       - evaluation plus a Redis Streams dispatch relay
+#   kafka       - evaluation plus a Kafka dispatch relay
+#
+# One command demonstrates accept -> signed delivery -> retry/DLQ -> status, e.g.:
+#   docker compose --profile memory up --build
+#   scripts/demo.sh memory
+#
+# All published bindings are loopback-only. Secrets here are public evaluation
+# test material and must never be used in production.
+
+x-hookshipd-build: &hookshipd-build
+  build:
+    context: .
+    args:
+      VERSION: compose
+      COMMIT: local
+      BUILD_DATE: unknown
+
+x-hookshipd-hardening: &hookshipd-hardening
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 15s
+
+x-durable-env: &durable-env
+  HOOKSHIP_DATABASE_URL: postgres://hookship:hookship_evaluation@postgres:5432/hookship?sslmode=disable
+  HOOKSHIP_PAYLOAD_KEY: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  HOOKSHIP_CONFIG_FILE: /etc/hookship/assignments.yaml
+  HOOKSHIP_PROXY_MODE: "true"
+  HOOKSHIP_LOG_LEVEL: info
+
+x-delivery-allow: &delivery-allow
+  HOOKSHIP_DELIVERY_ALLOW_PRIVATE: "true"
+  HOOKSHIP_DELIVERY_ALLOW_PLAINTEXT: "true"
 
 services:
-  hookshipd:
-    profiles:
-      - evaluation
+  local-sink:
+    profiles: [memory, evaluation, redis, kafka]
     build:
       context: .
-      args:
-        VERSION: evaluation
-        COMMIT: local
-        BUILD_DATE: unknown
+      dockerfile: examples/tools.Dockerfile
+    command: ["-addr=0.0.0.0:9099"]
     environment:
+      SINK_FAIL_FIRST: "${SINK_FAIL_FIRST:-0}"
+    <<: *hookshipd-hardening
+    restart: unless-stopped
+
+  postgres:
+    profiles: [evaluation, redis, kafka]
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: hookship
+      POSTGRES_USER: hookship
+      POSTGRES_PASSWORD: hookship_evaluation
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hookship", "-d", "hookship"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - hookship-postgres:/var/lib/postgresql/data
+    stop_grace_period: 15s
+
+  redis:
+    profiles: [redis]
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    stop_grace_period: 10s
+
+  kafka:
+    profiles: [kafka]
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    stop_grace_period: 15s
+
+  migrate:
+    profiles: [evaluation, redis, kafka]
+    <<: *hookshipd-build
+    entrypoint: ["/hookshipctl"]
+    command: ["migrate"]
+    environment:
+      <<: *durable-env
+      HOOKSHIP_BACKEND: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # --- Ephemeral memory profile: single hookshipd all + local sink ---
+  hookshipd-memory:
+    profiles: [memory]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["all"]
+    environment:
+      HOOKSHIP_BACKEND: memory
+      HOOKSHIP_EVALUATION_MODE: "true"
+      HOOKSHIP_PROXY_MODE: "true"
       HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8080
-      HOOKSHIP_LOG_LEVEL: info
+      HOOKSHIP_SINK_URL: http://local-sink:9099/sink
+      HOOKSHIP_OUTBOX_SINK: log
+      HOOKSHIP_DELIVERY_ALLOW_PRIVATE: "true"
     ports:
       - "127.0.0.1:8080:8080"
-    read_only: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test:
-        - CMD
-        - /hookshipctl
-        - diagnostics
-        - -url=http://127.0.0.1:8080
-        - -timeout=2s
-      interval: 10s
-      timeout: 3s
-      start_period: 2s
-      retries: 3
-    stop_grace_period: 15s
-    restart: "no"
+    depends_on:
+      - local-sink
+    restart: unless-stopped
+
+  # --- Durable evaluation profile (PostgreSQL) ---
+  api-postgres:
+    profiles: [evaluation]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["api"]
+    environment:
+      <<: *durable-env
+      HOOKSHIP_BACKEND: postgres
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8080
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker-postgres:
+    profiles: [evaluation]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["worker"]
+    environment:
+      <<: [*durable-env, *delivery-allow]
+      HOOKSHIP_BACKEND: postgres
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8090
+      HOOKSHIP_OUTBOX_SINK: log
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      local-sink:
+        condition: service_started
+    restart: unless-stopped
+
+  # --- Durable + Redis relay profile ---
+  api-redis:
+    profiles: [redis]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["api"]
+    environment:
+      <<: *durable-env
+      HOOKSHIP_BACKEND: postgres-redis
+      HOOKSHIP_REDIS_URL: redis://redis:6379/0
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8080
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker-redis:
+    profiles: [redis]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["worker"]
+    environment:
+      <<: [*durable-env, *delivery-allow]
+      HOOKSHIP_BACKEND: postgres-redis
+      HOOKSHIP_REDIS_URL: redis://redis:6379/0
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8090
+      HOOKSHIP_OUTBOX_SINK: log
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      local-sink:
+        condition: service_started
+    restart: unless-stopped
+
+  # --- Durable + Kafka relay profile ---
+  api-kafka:
+    profiles: [kafka]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["api"]
+    environment:
+      <<: *durable-env
+      HOOKSHIP_BACKEND: postgres-kafka
+      HOOKSHIP_KAFKA_BROKERS: kafka:9092
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8080
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker-kafka:
+    profiles: [kafka]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["worker"]
+    environment:
+      <<: [*durable-env, *delivery-allow]
+      HOOKSHIP_BACKEND: postgres-kafka
+      HOOKSHIP_KAFKA_BROKERS: kafka:9092
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8090
+      HOOKSHIP_OUTBOX_SINK: log
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      local-sink:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  hookship-postgres:

@@ -1,0 +1,90 @@
+{
+  "$schema": "urn:hookship:backend-capabilities:v1",
+  "schemaVersion": "backend_capabilities/v1",
+  "kind": "backend_capability",
+  "profile": "kafka-native-ledger",
+  "properties": {
+    "displayName": "Kafka native ledger (reserved)",
+    "summary": "Reserved: Kafka as the protocol-v1 acceptance ledger. Not designed yet.",
+    "evaluationOnly": false,
+    "status": "unsupported",
+    "reasonCode": "native_queue_ledger_not_designed",
+    "reason": "A Kafka-native acceptance ledger requires a separate protocol and storage design; PostgreSQL remains the source of truth in this release.",
+    "stateBackend": "kafka (proposed)",
+    "dispatchQueue": "kafka",
+    "payloadBackend": "unspecified",
+    "durability": "replicated",
+    "consistency": "eventual",
+    "deliverySemantics": "at_least_once",
+    "ordering": "partition",
+    "orderingNote": "",
+    "retentionHorizon": "undefined",
+    "delayedRetryStrategy": "undefined",
+    "failureRecovery": "undefined",
+    "operationalComplexity": "undefined",
+    "typicalUse": "not available"
+  },
+  "capabilities": {
+    "acknowledgementBarrier": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "No acceptance barrier is defined for a Kafka-only ledger."
+    },
+    "durableProtocolV1Acknowledgement": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Protocol-v1 acceptance is not defined against a Kafka-only ledger."
+    },
+    "restartRecovery": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    },
+    "durableIdempotency": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    },
+    "leaseFencing": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    },
+    "multiReplicaSafe": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    },
+    "multiProcessSafe": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    },
+    "replayRedrive": {
+      "supported": false,
+      "status": "unsupported",
+      "reasonCode": "native_queue_ledger_not_designed",
+      "reason": "Undefined."
+    }
+  },
+  "bounds": {
+    "maxPayloadBytes": 0,
+    "maxAssignments": 0,
+    "maxInFlightJobs": 0,
+    "testedThroughputPerSec": 0
+  },
+  "requirements": {
+    "backupRequirement": "undefined",
+    "requiredExternalServices": [
+      "kafka>=3.5"
+    ],
+    "deploymentModes": []
+  }
+}
