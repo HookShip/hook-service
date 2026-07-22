@@ -21,15 +21,24 @@ import (
 
 // Backend is the durable PostgreSQL runtime profile.
 type Backend struct {
-	pool      *pgxpool.Pool
-	repo      *durable.Repository
-	sealer    runtime.PayloadSealer
-	store     runtime.PayloadStore
-	source    runtime.AssignmentSource
-	endpoints map[string]runtime.EndpointConfig
-	clock     runtime.Clock
-	ids       runtime.IDSource
-	ownsPool  bool
+	pool          *pgxpool.Pool
+	repo          *durable.Repository
+	sealer        runtime.PayloadSealer
+	store         runtime.PayloadStore
+	source        runtime.AssignmentSource
+	endpoints     map[string]runtime.EndpointConfig
+	clock         runtime.Clock
+	ids           runtime.IDSource
+	stageLeaseTTL time.Duration
+	ownsPool      bool
+}
+
+// stageLease returns the configured object stage-write lease duration.
+func (b *Backend) stageLease() time.Duration {
+	if b.stageLeaseTTL <= 0 {
+		return objectStageWriteLease
+	}
+	return b.stageLeaseTTL
 }
 
 // Option customizes a PostgreSQL backend at construction.
@@ -54,6 +63,18 @@ func WithIDSource(ids runtime.IDSource) Option {
 	return func(b *Backend) {
 		if ids != nil {
 			b.ids = ids
+		}
+	}
+}
+
+// WithStageWriteLease overrides the object stage-write lease duration. It bounds
+// how long a single acceptance holds a stage-write lease while it PUTs
+// ciphertext; a shorter value reclaims a crashed writer faster. It is primarily
+// a test seam; production uses the default.
+func WithStageWriteLease(ttl time.Duration) Option {
+	return func(b *Backend) {
+		if ttl > 0 {
+			b.stageLeaseTTL = ttl
 		}
 	}
 }

@@ -47,8 +47,11 @@ Object storage uses a recoverable protocol:
 1. reserve the idempotency ledger as pending;
 2. call `GetObjectPayloadStage` by assignment and ledger before any provider
    I/O;
-3. when a stage exists, resume its exact payload ID, deterministic staging and
-   final keys, key reference/version, nonce, checksum, size, and expiry;
+3. when a stage exists with a matching ciphertext identity, resume its exact
+   payload ID, deterministic staging and final keys, key reference/version,
+   nonce, checksum, size, and expiry; when a retry produced a new ciphertext
+   identity and the payload is still `staging`, supersede it under a fence (see
+   below);
 4. when no stage exists, generate ciphertext metadata and call
    `StageObjectPayload` to persist that exact identity before provider I/O;
 5. claim `ClaimObjectStageWrite`; the database returns the current
@@ -62,13 +65,23 @@ Object storage uses a recoverable protocol:
 8. atomically insert ingest/delivery/job, mark payload committed, and commit
    the ledger.
 
-Restarted processes must load rather than regenerate the stage. A changed key,
-key version, nonce, checksum, size, object identity, staged time, or expiry is
-an idempotency conflict. An expired write lease orphans its attempt and a
-reclaim creates a monotonically numbered staging identity; the stale identity
-remains in `payload_stage_write_attempts`. Only the current unexpired lease may
-finalize. Before step 8, retries remain pending and never return a duplicate
-receipt.
+Restarted processes must load rather than regenerate the stage. The payload
+identity (payload ID, key reference/version, staged time, expiry) and any
+finalized or committed payload are immutable. A retry under the same idempotency
+key, however, re-seals the body with a fresh random AES-GCM nonce — nonces are
+never reused — producing a new ciphertext identity. While the payload is still
+`staging` and not finalized, `SupersedeObjectStage` atomically supersedes the
+staged nonce, checksum, size, and object keys with the new identity, fences every
+prior stage-write attempt, and claims a fresh monotonically numbered leased
+attempt. Concurrent retries have exactly one winner: the payload row is locked
+and any retry that finds an active stage-write lease backs off. Superseded
+attempts and their objects are retained in `payload_stage_write_attempts` for
+orphan cleanup and can never be accepted under mismatched metadata; a stale
+writer holding a superseded attempt's lease can no longer finalize. An expired
+write lease likewise orphans its attempt and a reclaim creates the next numbered
+identity. Only the current unexpired lease may finalize, and finalized or
+committed payloads are resumed, never rebound. Before step 8, retries remain
+pending and never return a duplicate receipt.
 Staging TTL is at least the 24-hour retry horizon. Expired staging/finalized
 records become orphaned and enter deletion cleanup; once orphaned, retries
 remain unavailable rather than falsely reporting a durable duplicate. The

@@ -69,19 +69,27 @@ func (b *Backend) acceptObject(ctx context.Context, request runtime.AcceptanceRe
 		// The staged ciphertext was reclaimed; the caller must retry with a fresh
 		// idempotency identity once retention clears the pending reservation.
 		return runtime.ErrUnavailable
-	case "staging":
-		if durable.Hash(request.Payload.CiphertextSHA256) != stage.CiphertextSHA256 {
-			// A prior attempt staged a different ciphertext identity for this
-			// ledger and we cannot reproduce those exact bytes. Fail closed and
-			// let retention orphan and delete the recoverable staged object.
-			return runtime.ErrUnavailable
-		}
-		if err := b.writeStagedObject(ctx, assignmentID, ledgerID, request.Payload.Ciphertext); err != nil {
-			return err
-		}
 	case "finalized":
 		// The object is already durable in the store (a crash between finalize
-		// and commit); skip the re-write and cross the barrier directly.
+		// and commit). Never rebind a finalized payload: resume it directly and
+		// discard the retry's fresh ciphertext, then cross the barrier below.
+	case "staging":
+		if durable.Hash(request.Payload.CiphertextSHA256) == stage.CiphertextSHA256 {
+			// Resume the exact staged identity (first attempt, or an identical
+			// re-seal): claim the current attempt and write it.
+			if err := b.claimAndWrite(ctx, assignmentID, ledgerID, request.Payload.Ciphertext); err != nil {
+				return err
+			}
+		} else {
+			// A retry produced a new ciphertext identity (a fresh random GCM
+			// nonce). Safely supersede the still-staging identity under a fence
+			// instead of wedging: one winner claims a new attempt, prior attempts
+			// and their objects become cleanup-owned, and stale writers cannot
+			// finalize.
+			if err := b.supersedeAndWrite(ctx, request, stage.PayloadID, payloadExpiry); err != nil {
+				return err
+			}
+		}
 	default:
 		return fmt.Errorf("unexpected object payload state %q", stage.State)
 	}
@@ -109,14 +117,13 @@ func (b *Backend) acceptObject(ctx context.Context, request runtime.AcceptanceRe
 	return nil
 }
 
-// writeStagedObject claims the durable stage-write lease, PUTs the ciphertext to
-// the immutable staging and final object keys, and records the promotion so the
-// payload becomes finalized. Every object write is checksum-verified by the
-// store; the lease fences the finalize so a stale writer can never finalize.
-func (b *Backend) writeStagedObject(ctx context.Context, assignmentID, ledgerID string, ciphertext []byte) error {
+// claimAndWrite claims the current stage-write attempt for an already-staged
+// identity and writes the ciphertext. A non-claimable attempt (an active
+// concurrent writer) yields retryable unavailability, never a false acceptance.
+func (b *Backend) claimAndWrite(ctx context.Context, assignmentID, ledgerID string, ciphertext []byte) error {
 	owner := b.ids.NewID("objw")
 	token := b.ids.NewID("objt")
-	lease, ok, err := b.repo.ClaimObjectStageWrite(ctx, assignmentID, ledgerID, owner, token, objectStageWriteLease)
+	lease, ok, err := b.repo.ClaimObjectStageWrite(ctx, assignmentID, ledgerID, owner, token, b.stageLease())
 	if err != nil {
 		if errors.Is(err, durable.ErrPayloadUnavailable) || errors.Is(err, durable.ErrNotFound) {
 			return runtime.ErrUnavailable
@@ -127,13 +134,56 @@ func (b *Backend) writeStagedObject(ctx context.Context, assignmentID, ledgerID 
 		// Another writer holds an active lease; the acceptance is retryable.
 		return runtime.ErrUnavailable
 	}
+	return b.writeAndFinalize(ctx, lease, ciphertext)
+}
 
+// supersedeAndWrite performs a fenced staging supersession for a retry whose
+// re-seal produced a new ciphertext identity, then writes and finalizes the new
+// attempt. If a concurrent retry already won (holds an active lease, or the
+// payload became finalized/committed), it returns retryable unavailability so
+// the loser backs off and resumes on its next retry.
+func (b *Backend) supersedeAndWrite(ctx context.Context, request runtime.AcceptanceRequest, payloadID string, payloadExpiry time.Time) error {
+	owner := b.ids.NewID("objw")
+	token := b.ids.NewID("objt")
+	identity := durable.ObjectPayloadStage{
+		AssignmentID:     request.Assignment.ID,
+		LedgerID:         request.LedgerID,
+		PayloadID:        payloadID,
+		KeyReference:     request.Payload.KeyReference,
+		KeyVersion:       request.Payload.KeyVersion,
+		Nonce:            request.Payload.Nonce,
+		CiphertextSHA256: durable.Hash(request.Payload.CiphertextSHA256),
+		CiphertextSize:   int64(len(request.Payload.Ciphertext)),
+		ExpiresAt:        payloadExpiry,
+		StagedAt:         request.AcceptedAt,
+	}
+	lease, superseded, err := b.repo.SupersedeObjectStage(ctx, identity, owner, token, b.stageLease())
+	if err != nil {
+		if errors.Is(err, durable.ErrPayloadUnavailable) || errors.Is(err, durable.ErrNotFound) {
+			return runtime.ErrUnavailable
+		}
+		if errors.Is(err, durable.ErrPayloadConflict) {
+			return fmt.Errorf("object payload key mismatch on supersession: %w", err)
+		}
+		return err
+	}
+	if !superseded {
+		return runtime.ErrUnavailable
+	}
+	return b.writeAndFinalize(ctx, lease, request.Payload.Ciphertext)
+}
+
+// writeAndFinalize PUTs the ciphertext to the immutable staging and final object
+// keys of the held lease and records the promotion so the payload becomes
+// finalized. Every object write is checksum-verified by the store; the lease
+// fences the finalize so a stale writer can never finalize.
+func (b *Backend) writeAndFinalize(ctx context.Context, lease durable.ObjectStageWriteLease, data []byte) error {
 	checksum := runtime.Hash(lease.CiphertextSHA256)
-	stagingResult, err := b.store.PutImmutable(ctx, lease.StagingObjectKey, ciphertext, checksum)
+	stagingResult, err := b.store.PutImmutable(ctx, lease.StagingObjectKey, data, checksum)
 	if err != nil {
 		return mapObjectStoreError("stage object put", err)
 	}
-	finalResult, err := b.store.PutImmutable(ctx, lease.FinalObjectKey, ciphertext, checksum)
+	finalResult, err := b.store.PutImmutable(ctx, lease.FinalObjectKey, data, checksum)
 	if err != nil {
 		return mapObjectStoreError("final object put", err)
 	}

@@ -896,6 +896,236 @@ func (r *Repository) ClaimObjectStageWrite(
 	return lease, true, nil
 }
 
+// SupersedeObjectStage atomically replaces the staged ciphertext identity of a
+// still-`staging` object payload with a new identity produced by a retry (a
+// fresh random-nonce re-seal), fences every prior stage-write attempt, and
+// creates a new leased attempt with fresh deterministic object keys. Superseded
+// attempts are retained (state 'orphaned') so their objects are reclaimed by
+// orphan cleanup, and prior objects can never be accepted under mismatched
+// metadata.
+//
+// It guarantees a single winner under concurrent retries: the payload row is
+// locked FOR UPDATE, and if any stage-write attempt still holds an active
+// (unexpired) lease the call returns ok=false without changing anything, so a
+// concurrent retry backs off. It never supersedes a finalized or committed
+// payload (returns ok=false so the caller resumes the durable object instead).
+// The returned lease belongs to the new attempt and fences finalization; any
+// stale writer holding a prior attempt's lease can no longer finalize.
+func (r *Repository) SupersedeObjectStage(
+	ctx context.Context,
+	identity ObjectPayloadStage,
+	owner, token string,
+	leaseDuration time.Duration,
+) (ObjectStageWriteLease, bool, error) {
+	for name, value := range map[string]string{
+		"assignment ID": identity.AssignmentID,
+		"ledger ID":     identity.LedgerID,
+		"payload ID":    identity.PayloadID,
+		"lease owner":   owner,
+		"lease token":   token,
+	} {
+		if err := validateText(name, value, 255); err != nil {
+			return ObjectStageWriteLease{}, false, err
+		}
+	}
+	if err := validateText("key reference", identity.KeyReference, 512); err != nil {
+		return ObjectStageWriteLease{}, false, err
+	}
+	if err := validateText("key version", identity.KeyVersion, 128); err != nil {
+		return ObjectStageWriteLease{}, false, err
+	}
+	if len(identity.Nonce) < 12 || len(identity.Nonce) > 32 {
+		return ObjectStageWriteLease{}, false, errors.New("ciphertext nonce must be between 12 and 32 bytes")
+	}
+	if identity.CiphertextSize <= 0 {
+		return ObjectStageWriteLease{}, false, errors.New("ciphertext size must be positive")
+	}
+	leaseMicroseconds, err := boundedDurationMicroseconds(
+		"object stage write lease duration",
+		leaseDuration,
+		time.Hour,
+		false,
+	)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, err
+	}
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("begin object stage supersession: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var state, keyReference, keyVersion string
+	var payloadUnexpired bool
+	err = tx.QueryRow(ctx, `
+		SELECT state::text, key_reference, key_version, expires_at > clock_timestamp()
+		FROM payload_records
+		WHERE assignment_id = $1 AND ledger_id = $2 AND payload_id = $3 AND backend = 'object_store'
+		FOR UPDATE
+	`, identity.AssignmentID, identity.LedgerID, identity.PayloadID).Scan(
+		&state, &keyReference, &keyVersion, &payloadUnexpired,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ObjectStageWriteLease{}, false, ErrNotFound
+	}
+	if err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("lock object payload for supersession: %w", err)
+	}
+	// Never rebind a finalized or committed payload; the caller resumes the
+	// durable object. Reclaimed/deleting payloads are also not supersedable.
+	if state != "staging" {
+		return ObjectStageWriteLease{}, false, nil
+	}
+	if !payloadUnexpired {
+		return ObjectStageWriteLease{}, false, ErrPayloadUnavailable
+	}
+	// The data encryption key must be stable across the retry; a different key
+	// reference/version is a genuine conflict, not a supersession.
+	if keyReference != identity.KeyReference || keyVersion != identity.KeyVersion {
+		return ObjectStageWriteLease{}, false, ErrPayloadConflict
+	}
+
+	// Single-winner fence: if any attempt still holds an active lease, a
+	// concurrent writer owns this payload; the caller must back off.
+	var activeWriter bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM payload_stage_write_attempts
+			WHERE assignment_id = $1
+			  AND payload_id = $2
+			  AND state = 'leased'
+			  AND lease_expires_at > clock_timestamp()
+		)
+	`, identity.AssignmentID, identity.PayloadID).Scan(&activeWriter); err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("check active object stage writer: %w", err)
+	}
+	if activeWriter {
+		return ObjectStageWriteLease{}, false, nil
+	}
+
+	// Fence every prior attempt so no stale writer can finalize.
+	if _, err := tx.Exec(ctx, `
+		WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
+		UPDATE payload_stage_write_attempts AS attempt
+		SET state = 'orphaned', lease_owner = NULL, lease_token = NULL,
+			lease_expires_at = NULL, orphaned_at = clock.now
+		FROM clock
+		WHERE attempt.assignment_id = $1
+		  AND attempt.payload_id = $2
+		  AND attempt.state IN ('ready', 'leased')
+	`, identity.AssignmentID, identity.PayloadID); err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("fence prior object stage attempts: %w", err)
+	}
+
+	var maxAttempt int
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(attempt_number), 0)
+		FROM payload_stage_write_attempts
+		WHERE assignment_id = $1 AND payload_id = $2
+	`, identity.AssignmentID, identity.PayloadID).Scan(&maxAttempt); err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("read prior object stage attempts: %w", err)
+	}
+	nextAttempt := maxAttempt + 1
+	nextAttemptID := stageWriteAttemptID(identity.AssignmentID, identity.PayloadID, nextAttempt)
+	nextStagingKey, nextFinalKey, err := ObjectAttemptKeys(identity.AssignmentID, identity.PayloadID, nextAttempt)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, err
+	}
+
+	var leaseExpiresAt time.Time
+	err = tx.QueryRow(ctx, `
+		WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
+		INSERT INTO payload_stage_write_attempts (
+			stage_write_attempt_id,
+			assignment_id,
+			payload_id,
+			ledger_id,
+			attempt_number,
+			state,
+			staging_object_key,
+			final_object_key,
+			ciphertext_sha256,
+			ciphertext_size,
+			lease_owner,
+			lease_token,
+			lease_expires_at,
+			created_at
+		)
+		SELECT $3, $1, $4, $2, $5, 'leased', $6, $7, $8, $9, $10, $11,
+			clock.now + $12::bigint * interval '1 microsecond', clock.now
+		FROM clock
+		RETURNING lease_expires_at
+	`,
+		identity.AssignmentID,
+		identity.LedgerID,
+		nextAttemptID,
+		identity.PayloadID,
+		nextAttempt,
+		nextStagingKey,
+		nextFinalKey,
+		identity.CiphertextSHA256[:],
+		identity.CiphertextSize,
+		owner,
+		token,
+		leaseMicroseconds,
+	).Scan(&leaseExpiresAt)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("insert superseding object stage attempt: %w", err)
+	}
+
+	// Move the payload's staged identity to the new attempt. The relaxed payload
+	// guard permits this fenced ciphertext-identity change only because the new
+	// leased attempt above records the matching keys, checksum, and size.
+	tag, err := tx.Exec(ctx, `
+		UPDATE payload_records
+		SET nonce = $4,
+			ciphertext_sha256 = $5,
+			ciphertext_size = $6,
+			staging_object_key = $7,
+			final_object_key = $8
+		WHERE assignment_id = $1 AND ledger_id = $2 AND payload_id = $3 AND state = 'staging'
+	`,
+		identity.AssignmentID,
+		identity.LedgerID,
+		identity.PayloadID,
+		identity.Nonce,
+		identity.CiphertextSHA256[:],
+		identity.CiphertextSize,
+		nextStagingKey,
+		nextFinalKey,
+	)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("supersede object payload identity: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ObjectStageWriteLease{}, false, ErrPayloadUnavailable
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ObjectStageWriteLease{}, false, fmt.Errorf("commit object stage supersession: %w", err)
+	}
+
+	lease := ObjectStageWriteLease{
+		AssignmentID:     identity.AssignmentID,
+		LedgerID:         identity.LedgerID,
+		PayloadID:        identity.PayloadID,
+		StageAttemptID:   nextAttemptID,
+		Attempt:          nextAttempt,
+		StagingObjectKey: nextStagingKey,
+		FinalObjectKey:   nextFinalKey,
+		KeyReference:     identity.KeyReference,
+		KeyVersion:       identity.KeyVersion,
+		Nonce:            append([]byte(nil), identity.Nonce...),
+		CiphertextSHA256: identity.CiphertextSHA256,
+		CiphertextSize:   identity.CiphertextSize,
+		Owner:            owner,
+		Token:            token,
+		ExpiresAt:        leaseExpiresAt,
+	}
+	return lease, true, nil
+}
+
 // ListObjectStageCleanup returns every durable attempt identity, including
 // stale attempts, even after payload deletion completes.
 func (r *Repository) ListObjectStageCleanup(
