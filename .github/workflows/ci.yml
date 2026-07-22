@@ -96,6 +96,11 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://hookship:hookship_test@127.0.0.1:5432/hookship_test?sslmode=disable
       REDIS_URL: redis://127.0.0.1:6379/0
+      MINIO_TEST_ENDPOINT: 127.0.0.1:9000
+      MINIO_TEST_BUCKET: hookship-payloads
+      MINIO_TEST_ACCESS_KEY: hookshipminio
+      MINIO_TEST_SECRET_KEY: hookshipminio_ci
+      MINIO_TEST_REGION: us-east-1
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -105,6 +110,22 @@ jobs:
         with:
           go-version: 1.26.5
           cache: false
+
+      - name: Start MinIO object store
+        run: |
+          set -euo pipefail
+          docker run -d --name minio-ci -p 9000:9000 \
+            -e MINIO_ROOT_USER=hookshipminio \
+            -e MINIO_ROOT_PASSWORD=hookshipminio_ci \
+            quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e \
+            server /data
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker run --rm --network host --entrypoint sh \
+            quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 \
+            -c "mc alias set ci http://127.0.0.1:9000 hookshipminio hookshipminio_ci && mc mb --ignore-existing ci/hookship-payloads"
 
       - name: Run migration and durability integration tests
         run: make migration-check test-integration

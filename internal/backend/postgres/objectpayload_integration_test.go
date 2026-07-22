@@ -16,51 +16,23 @@ import (
 	"github.com/hookship/hook-service/internal/backend/backendtest"
 	"github.com/hookship/hook-service/internal/backend/objectstore"
 	backendpg "github.com/hookship/hook-service/internal/backend/postgres"
+	durablepg "github.com/hookship/hook-service/internal/durability/postgres"
 	"github.com/hookship/hook-service/internal/runtime"
 )
-
-// objectContractStore returns a PayloadStore for the object-store contract. When
-// MinIO integration environment is configured it uses the real S3 client so the
-// full acceptance path is exercised end to end; otherwise it uses the in-memory
-// reference store. The returned counter reports how many objects were written.
-func objectContractStore(t *testing.T) runtime.PayloadStore {
-	t.Helper()
-	endpoint := os.Getenv("MINIO_TEST_ENDPOINT")
-	bucket := os.Getenv("MINIO_TEST_BUCKET")
-	access := os.Getenv("MINIO_TEST_ACCESS_KEY")
-	secret := os.Getenv("MINIO_TEST_SECRET_KEY")
-	if endpoint == "" || bucket == "" || access == "" || secret == "" {
-		return objectstore.NewMemoryStore()
-	}
-	region := os.Getenv("MINIO_TEST_REGION")
-	if region == "" {
-		region = "us-east-1"
-	}
-	client, err := objectstore.New(objectstore.Config{
-		Endpoint:    endpoint,
-		Region:      region,
-		Bucket:      bucket,
-		PathStyle:   true,
-		UseTLS:      os.Getenv("MINIO_TEST_USE_TLS") == "true",
-		Credentials: awsv4.Credentials{AccessKeyID: access, SecretAccessKey: secret},
-		Timeout:     15 * time.Second,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return client
-}
 
 // TestObjectStorePayloadBackendContract runs the full shared backend contract
 // against the PostgreSQL profile with the in-memory object-store payload
 // overlay, so the object acceptance path (stage -> claim -> immutable PUT ->
 // finalize -> commit) and object-backed LoadDelivery are held to identical
-// functional behavior as the PostgreSQL-byte default.
+// functional behavior as the PostgreSQL-byte default. The in-memory store keeps
+// the contract deterministic and re-runnable; the real S3 client is exercised
+// end to end by TestObjectStoreEndToEndAgainstMinIO and the objectstore
+// package's TestMinIOIntegration.
 func TestObjectStorePayloadBackendContract(t *testing.T) {
 	backendtest.RunContract(t, func(t *testing.T) (runtime.Backend, runtime.Assignment, func()) {
 		pool, cleanup := newIsolatedPool(t)
 		sealer := newTestSealer(t)
-		store := objectContractStore(t)
+		store := objectstore.NewMemoryStore()
 		base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
 		backend, err := backendpg.New(context.Background(), pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
 			backendpg.WithPayloadStore(store))
@@ -285,6 +257,83 @@ func TestObjectStorePayloadReclamationDeletesObjects(t *testing.T) {
 	if state != "deleted" {
 		t.Fatalf("payload state = %q, want deleted", state)
 	}
+}
+
+// TestObjectStoreEndToEndAgainstMinIO accepts and delivers through the real S3
+// client against MinIO when configured, using a run-unique assignment so the
+// deterministic object keys never collide with prior runs, and cleans up. It is
+// skipped unless the MinIO integration environment is set.
+func TestObjectStoreEndToEndAgainstMinIO(t *testing.T) {
+	endpoint := os.Getenv("MINIO_TEST_ENDPOINT")
+	bucket := os.Getenv("MINIO_TEST_BUCKET")
+	access := os.Getenv("MINIO_TEST_ACCESS_KEY")
+	secret := os.Getenv("MINIO_TEST_SECRET_KEY")
+	if endpoint == "" || bucket == "" || access == "" || secret == "" {
+		t.Skip("MinIO integration environment is not configured")
+	}
+	region := os.Getenv("MINIO_TEST_REGION")
+	if region == "" {
+		region = "us-east-1"
+	}
+	store, err := objectstore.New(objectstore.Config{
+		Endpoint:    endpoint,
+		Region:      region,
+		Bucket:      bucket,
+		PathStyle:   true,
+		UseTLS:      os.Getenv("MINIO_TEST_USE_TLS") == "true",
+		Credentials: awsv4.Credentials{AccessKeyID: access, SecretAccessKey: secret},
+		Timeout:     15 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pool, cleanup := newIsolatedPool(t)
+	defer cleanup()
+	ctx := context.Background()
+	sealer := newTestSealer(t)
+
+	// A run-unique assignment ID makes the deterministic object keys unique so
+	// re-runs against the persistent bucket never conflict.
+	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
+	suffix := runtime.NewULIDSource(runtime.SystemClock{}).NewID("run")
+	base.ID = base.ID + "_" + suffix
+	base.CredentialID = base.CredentialID + "_" + suffix
+
+	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+		backendpg.WithPayloadStore(store))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	resolved, _ := backend.ResolveCredential(ctx, base.CredentialID)
+
+	body := []byte(`{"minio":"end-to-end"}`)
+	acceptObject(t, ctx, backend, resolved, body, "op-minio-e2e")
+
+	job, ok, err := backend.ClaimJob(ctx, resolved.ID, runtime.JobKindDispatch, "worker", "token", 30*time.Second)
+	if err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	delivery, err := backend.LoadDelivery(ctx, job)
+	if err != nil {
+		t.Fatalf("load delivery from MinIO: %v", err)
+	}
+	if string(delivery.Body) != string(body) {
+		t.Fatalf("decrypted body mismatch from MinIO: %q", delivery.Body)
+	}
+
+	// Best-effort cleanup of the run's objects.
+	if staging, final, err := payloadObjectKeys(resolved.ID, "pay_op-minio-e2e"); err == nil {
+		_ = store.Delete(ctx, staging)
+		_ = store.Delete(ctx, final)
+	}
+}
+
+// payloadObjectKeys mirrors the durability layer's deterministic first-attempt
+// object keys for a payload, used only for test cleanup.
+func payloadObjectKeys(assignmentID, payloadID string) (staging, final string, err error) {
+	return durablepg.ObjectKeys(assignmentID, payloadID)
 }
 
 // waitForDatabaseTime blocks until the database clock passes target, so a short

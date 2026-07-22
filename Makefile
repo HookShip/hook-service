@@ -34,7 +34,8 @@ test-integration:
 	$(GO) test -count=1 -tags=integration \
 		./internal/durability/postgres \
 		./internal/backend/postgres \
-		./internal/backend/relay
+		./internal/backend/relay \
+		./internal/backend/objectstore
 
 test-race:
 	$(GO) test -race ./...
