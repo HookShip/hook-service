@@ -64,6 +64,7 @@ const (
 	envObjectAccessKey = "HOOKSHIP_PAYLOAD_OBJECT_ACCESS_KEY_ID"
 	envObjectSecretKey = "HOOKSHIP_PAYLOAD_OBJECT_SECRET_ACCESS_KEY"
 	envObjectSession   = "HOOKSHIP_PAYLOAD_OBJECT_SESSION_TOKEN"
+	envObjectPlaintext = "HOOKSHIP_PAYLOAD_OBJECT_ALLOW_PLAINTEXT"
 
 	// Object-store key management. The default is a static local key; an
 	// aws-kms provider path is credential-gated and validated below.
@@ -152,6 +153,7 @@ type ObjectStoreSettings struct {
 	Bucket          string
 	PathStyle       bool
 	UseTLS          bool
+	AllowPlaintext  bool
 	CABundlePath    string
 	AccessKeyID     string
 	SecretAccessKey string
@@ -330,6 +332,9 @@ func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 	if runtime.ObjectStore.UseTLS, err = boolFromEnv(getenv, envObjectUseTLS); err != nil {
 		return RuntimeConfig{}, err
 	}
+	if runtime.ObjectStore.AllowPlaintext, err = boolFromEnv(getenv, envObjectPlaintext); err != nil {
+		return RuntimeConfig{}, err
+	}
 
 	runtime.KeyProvider = strings.TrimSpace(getenv(envKeyProvider))
 	runtime.KMS = KMSSettings{
@@ -491,9 +496,9 @@ func (r RuntimeConfig) validateObjectStore(durableProfile bool) error {
 			envPayloadBackend, payloadBackendObjectStore,
 			envObjectEndpoint, envObjectRegion, envObjectBucket, envObjectAccessKey, envObjectSecretKey)
 	}
-	if !r.ObjectStore.UseTLS && r.Production() && !isLoopbackEndpoint(r.ObjectStore.Endpoint) {
-		return fmt.Errorf("%s must use TLS (%s=true) for a non-loopback endpoint in production",
-			payloadBackendObjectStore, envObjectUseTLS)
+	if !r.ObjectStore.UseTLS && r.Production() && !isLoopbackEndpoint(r.ObjectStore.Endpoint) && !r.ObjectStore.AllowPlaintext {
+		return fmt.Errorf("%s must use TLS (%s=true) for a non-loopback endpoint in production, or assert a trusted network with %s=true",
+			payloadBackendObjectStore, envObjectUseTLS, envObjectPlaintext)
 	}
 	if path := strings.TrimSpace(r.ObjectStore.CABundlePath); path != "" {
 		if _, err := os.Stat(path); err != nil {

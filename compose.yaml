@@ -3,14 +3,17 @@ name: hookship
 # HookShip delivery service Compose stack.
 #
 # Profiles:
-#   memory      - hookshipd all + local sink, no PostgreSQL (ephemeral, evaluation)
-#   evaluation  - PostgreSQL + migration + api + worker + local sink (durable)
-#   redis       - evaluation plus a Redis Streams dispatch relay
-#   kafka       - evaluation plus a Kafka dispatch relay
+#   memory       - hookshipd all + local sink, no PostgreSQL (ephemeral, evaluation)
+#   evaluation   - PostgreSQL + migration + api + worker + local sink (durable)
+#   redis        - evaluation plus a Redis Streams dispatch relay
+#   kafka        - evaluation plus a Kafka dispatch relay
+#   object-store - evaluation plus a MinIO object store for ciphertext payloads
 #
 # One command demonstrates accept -> signed delivery -> retry/DLQ -> status, e.g.:
 #   docker compose --profile memory up --build
+#   docker compose --profile object-store up --build
 #   scripts/demo.sh memory
+#   scripts/demo.sh object-store
 #
 # All published bindings are loopback-only. Secrets here are public evaluation
 # test material and must never be used in production.
@@ -42,9 +45,24 @@ x-delivery-allow: &delivery-allow
   HOOKSHIP_DELIVERY_ALLOW_PRIVATE: "true"
   HOOKSHIP_DELIVERY_ALLOW_PLAINTEXT: "true"
 
+# Object-store payload backend pointed at the local MinIO service. The endpoint
+# is plaintext on the trusted Compose network, so the trusted-network opt-in is
+# asserted explicitly; a production deployment must use TLS instead. These are
+# public evaluation credentials and must never be used in production.
+x-object-env: &object-env
+  HOOKSHIP_PAYLOAD_BACKEND: object-store
+  HOOKSHIP_PAYLOAD_OBJECT_ENDPOINT: minio:9000
+  HOOKSHIP_PAYLOAD_OBJECT_REGION: us-east-1
+  HOOKSHIP_PAYLOAD_OBJECT_BUCKET: hookship-payloads
+  HOOKSHIP_PAYLOAD_OBJECT_PATH_STYLE: "true"
+  HOOKSHIP_PAYLOAD_OBJECT_USE_TLS: "false"
+  HOOKSHIP_PAYLOAD_OBJECT_ALLOW_PLAINTEXT: "true"
+  HOOKSHIP_PAYLOAD_OBJECT_ACCESS_KEY_ID: hookshipminio
+  HOOKSHIP_PAYLOAD_OBJECT_SECRET_ACCESS_KEY: hookshipminio_evaluation
+
 services:
   local-sink:
-    profiles: [memory, evaluation, redis, kafka]
+    profiles: [memory, evaluation, redis, kafka, object-store]
     build:
       context: .
       dockerfile: examples/tools.Dockerfile
@@ -55,7 +73,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    profiles: [evaluation, redis, kafka]
+    profiles: [evaluation, redis, kafka, object-store]
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_DB: hookship
@@ -103,7 +121,7 @@ services:
     stop_grace_period: 15s
 
   migrate:
-    profiles: [evaluation, redis, kafka]
+    profiles: [evaluation, redis, kafka, object-store]
     <<: *hookshipd-build
     entrypoint: ["/hookshipctl"]
     command: ["migrate"]
@@ -266,5 +284,79 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # --- Durable + object-store payload profile (MinIO) ---
+  minio:
+    profiles: [object-store]
+    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: hookshipminio
+      MINIO_ROOT_PASSWORD: hookshipminio_evaluation
+    volumes:
+      - hookship-minio:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+    stop_grace_period: 15s
+
+  minio-setup:
+    profiles: [object-store]
+    image: quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until mc alias set fw http://minio:9000 hookshipminio hookshipminio_evaluation >/dev/null 2>&1; do
+          echo "waiting for minio to accept connections..."; sleep 1
+        done
+        mc mb --ignore-existing fw/hookship-payloads
+        echo "object store bucket ready"
+    depends_on:
+      - minio
+    restart: "no"
+
+  api-object:
+    profiles: [object-store]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["api"]
+    environment:
+      <<: [*durable-env, *object-env]
+      HOOKSHIP_BACKEND: postgres
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8080
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      minio-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker-object:
+    profiles: [object-store]
+    <<: [*hookshipd-build, *hookshipd-hardening]
+    command: ["worker"]
+    environment:
+      <<: [*durable-env, *delivery-allow, *object-env]
+      HOOKSHIP_BACKEND: postgres
+      HOOKSHIP_LISTEN_ADDRESS: 0.0.0.0:8090
+      HOOKSHIP_OUTBOX_SINK: log
+    volumes:
+      - ./examples/compose/assignments.yaml:/etc/hookship/assignments.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      minio-setup:
+        condition: service_completed_successfully
+      local-sink:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   hookship-postgres:
+  hookship-minio:

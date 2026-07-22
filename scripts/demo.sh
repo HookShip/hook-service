@@ -3,7 +3,7 @@
 # accept -> signed delivery -> retry/DLQ -> payload-free status.
 #
 # Usage:
-#   scripts/demo.sh [memory|evaluation|redis|kafka] [retry]
+#   scripts/demo.sh [memory|evaluation|redis|kafka|object-store] [retry]
 #
 # The optional "retry" argument makes the local sink reject the first two
 # deliveries so the client observes a retry before success. Without it the
@@ -14,9 +14,9 @@ profile="${1:-memory}"
 mode="${2:-}"
 
 case "$profile" in
-	memory | evaluation | redis | kafka) ;;
+	memory | evaluation | redis | kafka | object-store) ;;
 	*)
-		echo "unknown profile: $profile (expected memory|evaluation|redis|kafka)" >&2
+		echo "unknown profile: $profile (expected memory|evaluation|redis|kafka|object-store)" >&2
 		exit 2
 		;;
 esac
