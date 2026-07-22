@@ -1,0 +1,28 @@
+# gitleaks configuration for hook-service.
+#
+# It extends the upstream default ruleset and allowlists only the repository's
+# documented, public, non-production test material: the Standard Webhooks
+# signing test vectors and the well-known evaluation signing secret used by the
+# assignment defaults, the assignment-config tests, and the local evaluation
+# examples/Compose profiles. These are intentionally committed test fixtures and
+# are never production credentials.
+title = "hook-service gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public, documented evaluation and specification test material only."
+paths = [
+  '''internal/signing/testdata/standard-webhooks-vectors\.json''',
+  '''internal/assignmentconfig/defaults\.go''',
+  '''internal/assignmentconfig/assignmentconfig_test\.go''',
+  '''examples/compose/assignments\.yaml''',
+  '''examples/local-sink/main\.go''',
+]
+# The well-known evaluation Standard Webhooks symmetric secrets (whsec_ base64)
+# are documented test material shared across the fixtures above.
+regexes = [
+  '''whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''',
+  '''whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA=''',
+]

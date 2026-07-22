@@ -28,8 +28,8 @@ combinations fail with a stable reason code (see
 | `HOOKSHIP_BACKEND` | empty (health-only) | `memory`, `postgres`, `postgres-redis`, or `postgres-kafka` |
 | `HOOKSHIP_EVALUATION_MODE` | `false` | Required `true` for `memory`; loopback, non-production only |
 | `HOOKSHIP_DATABASE_URL` | empty | Required by durable profiles; PostgreSQL 17+ URL |
-| `HOOKSHIP_PAYLOAD_KEY` | empty | Required by durable profiles; 32-byte key in hex or base64 |
-| `HOOKSHIP_PAYLOAD_BACKEND` | empty | `memory`, `postgres` (default durable), or `object-store` (experimental, not wired: the runtime keeps using the default store and writes no object-store bytes; hard-blocked in production) |
+| `HOOKSHIP_PAYLOAD_KEY` | empty | Required by durable profiles unless `HOOKSHIP_KEY_PROVIDER=aws-kms`; 32-byte key in hex or base64 |
+| `HOOKSHIP_PAYLOAD_BACKEND` | empty | `memory`, `postgres` (default durable), or `object-store` (wired; stores ciphertext in an S3-compatible object store, requires a durable profile and the `HOOKSHIP_PAYLOAD_OBJECT_*` settings) |
 | `HOOKSHIP_REDIS_URL` | empty | Required by `postgres-redis` |
 | `HOOKSHIP_KAFKA_BROKERS` | empty | Comma-separated brokers; required by `postgres-kafka` |
 | `HOOKSHIP_CONFIG_FILE` | empty | Assignment config (YAML/JSON); required by durable profiles |
@@ -46,6 +46,57 @@ combinations fail with a stable reason code (see
 | `HOOKSHIP_DELIVERY_ALLOW_LOOPBACK` | `false` | Permit delivery to loopback sinks (reduces SSRF protection) |
 | `HOOKSHIP_DELIVERY_ALLOW_PRIVATE` | `false` | Permit delivery to private/container sinks (reduces SSRF protection) |
 | `HOOKSHIP_DELIVERY_ALLOW_PLAINTEXT` | `false` | Permit plaintext `http` delivery |
+
+### Object-store payload backend
+
+Used and validated only when `HOOKSHIP_PAYLOAD_BACKEND=object-store` (which
+requires a durable profile).
+
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `HOOKSHIP_PAYLOAD_OBJECT_ENDPOINT` | empty | S3-compatible endpoint (`host:port` or URL); required |
+| `HOOKSHIP_PAYLOAD_OBJECT_REGION` | empty | Signing region (e.g. `us-east-1`); required |
+| `HOOKSHIP_PAYLOAD_OBJECT_BUCKET` | empty | Ciphertext bucket; required |
+| `HOOKSHIP_PAYLOAD_OBJECT_ACCESS_KEY_ID` | empty | Access key ID; required |
+| `HOOKSHIP_PAYLOAD_OBJECT_SECRET_ACCESS_KEY` | empty | ****** access key; required |
+| `HOOKSHIP_PAYLOAD_OBJECT_SESSION_TOKEN` | empty | Optional session token for temporary credentials |
+| `HOOKSHIP_PAYLOAD_OBJECT_PATH_STYLE` | `false` | Use path-style addressing (required by MinIO) |
+| `HOOKSHIP_PAYLOAD_OBJECT_USE_TLS` | `false` | Use HTTPS to the object store |
+| `HOOKSHIP_PAYLOAD_OBJECT_CA_BUNDLE` | empty | Path to a PEM CA bundle for a private object-store CA |
+| `HOOKSHIP_PAYLOAD_OBJECT_ALLOW_PLAINTEXT` | `false` | Assert a trusted network for non-loopback plaintext object transport; without it (or TLS) a non-loopback endpoint fails closed in production |
+
+### Payload key provider
+
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `HOOKSHIP_KEY_PROVIDER` | `static` | `static` (local key) or `aws-kms` (envelope provider) |
+| `HOOKSHIP_KMS_KEY_ID` | empty | KMS key ID/ARN/alias; required by `aws-kms` |
+| `HOOKSHIP_KMS_REGION` | empty | KMS region; required by `aws-kms` |
+| `HOOKSHIP_KMS_WRAPPED_DATA_KEY` | empty | Base64 KMS-wrapped data key (the stable cell DEK); required by `aws-kms` |
+| `HOOKSHIP_KMS_ACCESS_KEY_ID` / `HOOKSHIP_KMS_SECRET_ACCESS_KEY` | empty | KMS credentials; required when `HOOKSHIP_KMS_ENDPOINT` is set |
+| `HOOKSHIP_KMS_SESSION_TOKEN` | empty | Optional session token |
+| `HOOKSHIP_KMS_ENDPOINT` | empty | Optional endpoint override (local/fake KMS) |
+
+The KMS provider unwraps the data key with KMS `Decrypt` at startup. Rotating the
+KMS key (rewrapping the same data key) does not change the sealed payload bytes,
+so previously stored ciphertext stays decryptable.
+
+### Concurrency, rate limits, and retention
+
+| Variable | Default | Constraint |
+| --- | --- | --- |
+| `HOOKSHIP_ENDPOINT_MAX_CONCURRENCY` | `0` (unlimited) | Max concurrent deliveries per endpoint |
+| `HOOKSHIP_ASSIGNMENT_MAX_CONCURRENCY` | `0` (unlimited) | Max concurrent deliveries per assignment |
+| `HOOKSHIP_ENDPOINT_RATE_PER_SEC` / `HOOKSHIP_ENDPOINT_RATE_BURST` | `0` | Per-endpoint token-bucket rate and burst |
+| `HOOKSHIP_ASSIGNMENT_RATE_PER_SEC` / `HOOKSHIP_ASSIGNMENT_RATE_BURST` | `0` | Per-assignment token-bucket rate and burst |
+| `HOOKSHIP_RETENTION_INTERVAL` | `1m` | Retention pass interval (between `1s` and `1h`) |
+| `HOOKSHIP_RETENTION_BATCH` | `500` | Rows per retention operation (between 1 and 10000) |
+| `HOOKSHIP_OUTBOX_RETENTION` | `24h` | Age after which terminal metadata-outbox rows are purged (min `1m`) |
+
+When a per-assignment or per-endpoint limit is hit, the worker defers the job
+with a short retry (bounded backpressure) instead of blocking; it never drops or
+false-completes work.
+
 
 Non-loopback plaintext ingest fails closed unless TLS or `HOOKSHIP_PROXY_MODE`
 is set. There are two mutually exclusive ways to secure a non-loopback listener:

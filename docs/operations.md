@@ -9,10 +9,39 @@ JSON, non-cacheable, and include `status`, `service`, and `version`.
 | --- | --- | --- |
 | `/healthz` | `200`, status `ok` | Reserved for inability to serve the process probe |
 | `/readyz` | `200`, status `ready` | `503`, status `not_ready` |
+| `/statusz` | `200`, payload-free operator status JSON | — |
 
 These endpoints report process state only. They do not assert successful
 webhook delivery, durable storage, external dependency health, availability,
 or an SLA.
+
+`/statusz` returns a payload-free operator snapshot: `service`, `version`,
+`backend`, `durability`, `payloadBackend` (`postgres` or `object-store`),
+`keyProvider` (`static` or `aws-kms`), and a `metrics` object of counters and
+gauges (delivery outcomes, circuit-open skips, rate-limit/concurrency deferrals,
+an in-flight gauge, and retention counts). It never contains request bodies,
+payloads, secrets, or identifiers. Delivery and retention metrics are recorded
+by the `worker`/`all` process; the `api` process reports its own registry.
+
+## Retention and cleanup
+
+The `worker` and `all` modes run a bounded retention worker
+(`HOOKSHIP_RETENTION_INTERVAL`, default `1m`) that, in batches of
+`HOOKSHIP_RETENTION_BATCH` (default `500`):
+
+- purges expired replay-protection nonces;
+- advances committed idempotency ledgers to tombstones once their retention
+  window elapses;
+- orphans object-store payload stages that expired before acceptance;
+- reclaims expired payload ciphertext under a fencing lease — nulling PostgreSQL
+  ciphertext bytes and deleting the immutable object-store objects (including
+  stale stage-write attempts) so no ciphertext is left behind;
+- purges terminal metadata-outbox rows older than `HOOKSHIP_OUTBOX_RETENTION`
+  (default `24h`).
+
+Every operation is bounded per pass and reported to `/statusz`. Payload
+reclamation only runs once a payload's jobs are terminal and its idempotency
+ledger is tombstoned, so in-flight deliveries are never affected.
 
 ## Diagnostics
 

@@ -36,29 +36,36 @@ future ingest/runtime ──pgx──> one PostgreSQL 17+ regional cell
   checksum enforcement, assignment-scoped persistence, atomic acceptance,
   restart-readable object staging metadata, database-clock leases, fencing,
   versioned stage-write attempt identities, payload-deletion recovery, and
-  retention transitions. It is not wired into `hookshipd` yet.
+  retention transitions. The `postgres` backend wraps it and the ingest handler
+  and delivery worker drive it through the runtime ports.
 
 - `internal/runtime` defines the backend-agnostic ports (assignment/credential
-  source, nonce ledger, payload sealer, acceptance store, durable queue with
-  fencing, metadata outbox, diagnostics/redrive, clock, and IDs). `internal/
-  capabilities` owns the versioned backend capability schema.
-- `internal/backend/{memory,postgres,relay}` implement the profiles; the
-  `postgres` backend wraps `internal/durability/postgres`. `internal/ingest`,
-  `internal/worker`, `internal/signing`, `internal/transport`, and
-  `internal/outboxsink` implement the protocol handlers and delivery loop
-  against the ports.
+  source, nonce ledger, payload sealer, immutable payload object store,
+  acceptance store, durable queue with fencing, metadata outbox,
+  diagnostics/redrive, clock, and IDs). `internal/capabilities` owns the
+  versioned backend capability schema.
+- `internal/backend/{memory,postgres,relay,objectstore}` implement the profiles
+  and the S3-compatible payload store; the `postgres` backend wraps
+  `internal/durability/postgres`. `internal/keyprovider` is the payload
+  key-management seam (static default and an AWS-compatible KMS envelope
+  provider), and `internal/awsv4` is the shared dependency-free SigV4 signer.
+  `internal/ingest`, `internal/worker`, `internal/signing`,
+  `internal/transport`, and `internal/outboxsink` implement the protocol
+  handlers and delivery loop against the ports.
+- `internal/ratelimit`, `internal/maintenance`, and `internal/metrics` provide
+  per-assignment/per-endpoint limits with bounded backpressure, the retention
+  and cleanup workers, and the payload-free operator metrics exposed on
+  `/statusz`.
 - `cmd/hookshipd` runs the `api`, `worker`, and `all` modes; `cmd/hookshipctl`
   adds `migrate`, `doctor`, and `backend` operator commands.
-- `internal/durability/postgres` owns forward-only migrations, migration
-  checksum enforcement, assignment-scoped persistence, atomic acceptance,
-  restart-readable object staging metadata, database-clock leases, fencing,
-  the replay-protection nonce ledger, payload-deletion recovery, and retention
-  transitions.
 
-The S3-compatible object-store payload backend and cloud KMS/HSM integrations
-are intentionally not wired into the runtime; PostgreSQL ciphertext is the
-supported durable payload store. The object-store staging protocol exists in
-the durability package and is declared `experimental` in the capability schema.
+Payload ciphertext is stored either in PostgreSQL (the default) or, when
+`HOOKSHIP_PAYLOAD_BACKEND=object-store` is selected on a durable profile, in an
+S3-compatible object store through the `PayloadStore` port. The port is
+orthogonal to the `PayloadSealer`: the sealer produces ciphertext; the store
+persists it under a deterministic, payload-free object key while the PostgreSQL
+ledger keeps only the object locator, checksum, and key metadata. Cloud KMS is
+available through the `internal/keyprovider` seam and is credential-gated.
 
 ## Protocol channels
 

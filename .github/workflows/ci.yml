@@ -38,6 +38,34 @@ jobs:
       - name: Run repository checks
         run: make ci
 
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history so gitleaks scans every commit, not just the tip.
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          version=8.30.1
+          asset="gitleaks_${version}_linux_x64.tar.gz"
+          sha=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -fsSL -o "$asset" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/${asset}"
+          echo "${sha}  ${asset}" | sha256sum -c -
+          tar -xzf "$asset" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          rm -f "$asset" gitleaks
+          gitleaks version
+
+      - name: Scan for secrets
+        run: make gitleaks
+
   postgres-integration:
     name: PostgreSQL 17 integration
     runs-on: ubuntu-latest

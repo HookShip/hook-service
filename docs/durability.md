@@ -2,9 +2,10 @@
 
 ## Status
 
-Accepted for the persistence-library phase. This decision does not add the
-public event-ingest handler, an outbound delivery worker, cloud object-store
-code, or a production readiness claim.
+Accepted for the persistence-library phase, and now wired into the runtime.
+Payload ciphertext is stored in PostgreSQL by default, or in an S3-compatible
+object store when the object-store payload backend is selected. This document
+does not add a production readiness claim.
 
 ## Decision
 

@@ -7,11 +7,14 @@ and single-cell durability boundaries needed before delivery execution.
 > **Status:** pre-release (`v0.x`). This repository now implements the outbound
 > delivery runtime: protocol-v1 authenticated ingest, idempotent durable
 > acceptance, Standard Webhooks-compatible signing, an SSRF-safe delivery
-> worker with retries/DLQ, payload-free status, and selectable native backend
-> profiles (`memory`, `postgres`, `postgres-redis`, `postgres-kafka`). It has
-> not been released or independently audited, and it makes no availability,
-> throughput, or service-level claims. PostgreSQL is the source of truth for
-> the durable profiles; delivery is at-least-once (never exactly-once).
+> worker with retries/DLQ, payload-free status, selectable native backend
+> profiles (`memory`, `postgres`, `postgres-redis`, `postgres-kafka`), an
+> S3-compatible object-store payload backend, a static/AWS-KMS payload key
+> provider seam, and per-assignment/per-endpoint limits with retention workers
+> and payload-free operator metrics. It has not been released or independently
+> audited, and it makes no availability, throughput, or service-level claims.
+> PostgreSQL is the source of truth for the durable profiles; delivery is
+> at-least-once (never exactly-once).
 
 ## Surface
 
@@ -77,14 +80,19 @@ docker compose --profile memory up --build
 # Durable evaluation profile (PostgreSQL + migration + api + worker + sink):
 docker compose --profile evaluation up --build
 
-# Or run the scripted demo (memory|evaluation|redis|kafka; add "retry" to
-# exercise retry/DLQ):
+# Durable profile with S3-compatible object-store ciphertext payloads (MinIO):
+docker compose --profile object-store up --build
+
+# Or run the scripted demo (memory|evaluation|redis|kafka|object-store; add
+# "retry" to exercise retry/DLQ):
 scripts/demo.sh memory
 scripts/demo.sh evaluation retry
+scripts/demo.sh object-store
 ```
 
 The `redis` and `kafka` profiles add their real services and a transactional
-dispatch relay. PostgreSQL remains the source of truth and the acceptance
+dispatch relay. The `object-store` profile adds MinIO and stores payload
+ciphertext there. PostgreSQL remains the source of truth and the acceptance
 barrier in every durable profile.
 
 The image does not bake in a fixed-port healthcheck. Deployments that override
@@ -94,14 +102,19 @@ the listener must define a matching probe.
 
 - Standard library first; direct Go dependencies are pinned and verified
   (`pgx/v5`, `yaml.v3`, and the Redis/Kafka clients used only by their profiles).
-- No request or payload logging; attempts, outbox rows, status, and metadata
-  are payload-free.
+  The S3-compatible object store and AWS KMS provider speak their REST/JSON APIs
+  directly over a dependency-free AWS SigV4 signer, so no cloud SDK is added.
+- No request or payload logging; attempts, outbox rows, status, metadata, and
+  the `/statusz` operator metrics are payload-free.
 - No implicit public network exposure; non-loopback plaintext fails closed
   unless an operator asserts an explicit proxy boundary.
 - PostgreSQL is the durable queue and source of truth; Redis/Kafka carry only
   advisory dispatch signals derived from committed state, so there is no
   database-plus-queue dual write.
-- Stored payload bytes are AES-256-GCM ciphertext only.
+- Stored payload bytes are AES-256-GCM ciphertext only, in PostgreSQL by default
+  or in an S3-compatible object store; the object-store 202 barrier requires the
+  immutable object PUT plus the durable PostgreSQL commit, and the database keeps
+  only object locators, hashes, and key metadata — never raw bytes.
 - At-least-once delivery; downstream idempotency remains necessary.
 - No availability, throughput, or service-level claims; no invented domains,
   registries, or contacts.
