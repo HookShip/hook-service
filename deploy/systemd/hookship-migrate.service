@@ -1,0 +1,43 @@
+[Unit]
+Description=HookShip delivery service database migration (one-shot)
+Documentation=https://github.com/hookship/hook-service/blob/main/docs/operations.md
+After=network-online.target
+Wants=network-online.target
+Before=hookshipd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=hookship
+Group=hookship
+EnvironmentFile=/etc/hookship/hookshipd.env
+ExecStart=/usr/local/bin/hookshipctl migrate
+TimeoutStartSec=120
+
+# Hardening: the migrator needs only outbound network and no filesystem writes.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

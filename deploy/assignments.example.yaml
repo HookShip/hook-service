@@ -1,0 +1,31 @@
+# Assignment/credential source for a single-VM deployment.
+#
+# Installed to /etc/hookship/assignments.yaml (mode 0640, owned by the hookship
+# service user). It authorizes producer assignments and defines their delivery
+# endpoints. Replace every REPLACE_ME value; this file contains no real secret.
+#
+# - hmacSecret authenticates the producer's protocol-v1 exact-body HMAC. Use a
+#   "hex:" or "base64:" prefix. Generate one with: openssl rand -hex 32
+# - endpoint.signingSecret is the Standard Webhooks outbound signing secret
+#   ("whsec_" + base64). Generate with: printf 'whsec_%s' "$(openssl rand -base64 24)"
+#
+# See internal/assignmentconfig and docs/configuration.md for the schema.
+backend: postgres
+evaluationMode: false
+payloadBackend: postgres
+assignments:
+  - id: asg_primary
+    credentialId: cred_primary
+    hmacSecret: hex:REPLACE_ME
+    environment: production
+    routes: [orders.primary]
+    maxBodyBytes: 65536
+    endpoint:
+      id: ep_primary
+      # Delivering to a private/loopback/plaintext target requires the matching
+      # HOOKSHIP_DELIVERY_ALLOW_* opt-in in hookshipd.env.
+      url: https://REPLACE_ME.example.invalid/webhooks
+      signingSecret: whsec_REPLACE_ME
+      configGeneration: 1
+      maxAttempts: 12
+      timeoutSeconds: 30

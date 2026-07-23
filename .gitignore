@@ -5,3 +5,7 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# Filled-in single-VM deployment secrets (never commit real values)
+/deploy/compose/.env
+/deploy/compose/assignments.yaml

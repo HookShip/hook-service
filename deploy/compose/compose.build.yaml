@@ -1,0 +1,82 @@
+name: hookship-deploy
+
+# Single-VM durable deployment that BUILDS hookshipd from source.
+#
+# This is the source-build deployment path. It runs one PostgreSQL cell, applies
+# migrations once, then runs the combined api+worker process. All published
+# bindings are loopback-only; HOOKSHIP_PROXY_MODE asserts that a host-level
+# reverse proxy or SSH tunnel terminates TLS in front of the loopback publish.
+#
+# Configure by copying .env.example to .env and replacing every REPLACE_ME
+# value, then:
+#   deploy/scripts/compose-up.sh build
+#
+# For the pull-based path (an immutable published image), use compose.pull.yaml.
+
+x-hookshipd-hardening: &hookshipd-hardening
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  stop_grace_period: 30s
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    environment:
+      POSTGRES_DB: hookship
+      POSTGRES_USER: hookship
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hookship", "-d", "hookship"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - hookship-postgres:/var/lib/postgresql/data
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ../..
+      args:
+        VERSION: source
+        COMMIT: local
+        BUILD_DATE: unknown
+    entrypoint: ["/hookshipctl"]
+    command: ["migrate"]
+    env_file: [./.env]
+    environment:
+      HOOKSHIP_BACKEND: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  hookshipd:
+    build:
+      context: ../..
+      args:
+        VERSION: source
+        COMMIT: local
+        BUILD_DATE: unknown
+    <<: *hookshipd-hardening
+    command: ["all"]
+    env_file: [./.env]
+    environment:
+      HOOKSHIP_BACKEND: postgres
+    volumes:
+      - ./assignments.yaml:/etc/hookship/assignments.yaml:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  hookship-postgres:

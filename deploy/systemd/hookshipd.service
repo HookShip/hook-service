@@ -1,0 +1,52 @@
+[Unit]
+Description=HookShip outbound webhook delivery service (api + worker)
+Documentation=https://github.com/hookship/hook-service/blob/main/docs/operations.md
+After=network-online.target hookship-migrate.service
+Wants=network-online.target
+Requires=hookship-migrate.service
+
+[Service]
+Type=exec
+User=hookship
+Group=hookship
+EnvironmentFile=/etc/hookship/hookshipd.env
+# The single-VM deployment runs the combined api+worker process.
+ExecStart=/usr/local/bin/hookshipd all
+Restart=on-failure
+RestartSec=5
+# Give graceful shutdown longer than HOOKSHIP_SHUTDOWN_TIMEOUT (default 10s).
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Writable runtime state lives only here (StateDirectory creates and chowns it).
+StateDirectory=hookship
+StateDirectoryMode=0750
+
+# Hardening.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/hookship
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

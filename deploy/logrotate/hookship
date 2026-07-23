@@ -1,0 +1,22 @@
+# logrotate configuration for hook-service file-based logs.
+#
+# hookshipd writes structured JSON lifecycle/error events to stderr. Under the
+# systemd units these go to the journal, so journald retention is the primary
+# control (see docs/runbooks/log-rotation.md). This file is only needed when a
+# deployment routes hookshipd's stderr (or a file-based metadata outbox sink,
+# HOOKSHIP_OUTBOX_SINK=/var/log/hookship/outbox.log) to files.
+#
+# Install to /etc/logrotate.d/hookship. It rotates payload-free operational logs
+# only; hook-service never writes request bodies or payloads to logs.
+
+/var/log/hookship/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su hookship hookship
+    create 0640 hookship hookship
+}
