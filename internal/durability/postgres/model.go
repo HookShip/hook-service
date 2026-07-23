@@ -2,12 +2,13 @@ package postgres
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/hookship/hook-service/internal/idempotency"
 )
 
 const (
@@ -48,14 +49,9 @@ func (h Hash) String() string {
 	return hex.EncodeToString(h[:])
 }
 
-type StableHeaders struct {
-	EventID     string
-	EventType   string
-	Route       string
-	ContentType string
-}
+type StableHeaders = idempotency.Headers
 
-func (h StableHeaders) validate() error {
+func validateStableHeaders(h StableHeaders) error {
 	values := []struct {
 		name  string
 		value string
@@ -75,25 +71,10 @@ func (h StableHeaders) validate() error {
 
 // RequestFingerprint binds the exact body hash and all stable signed event
 // headers. Replay-only timestamp, nonce, signature, and credential ID are
-// intentionally excluded.
+// intentionally excluded. It delegates to the shared idempotency package so the
+// durable fingerprint is byte-identical to the runtime fingerprint.
 func RequestFingerprint(bodySHA256 Hash, headers StableHeaders) Hash {
-	digest := sha256.New()
-	_, _ = digest.Write([]byte("hookship-idempotency-fingerprint-v1\x00"))
-	_, _ = digest.Write(bodySHA256[:])
-	for _, value := range []string{
-		headers.EventID,
-		headers.EventType,
-		headers.Route,
-		headers.ContentType,
-	} {
-		var length [4]byte
-		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
-		_, _ = digest.Write(length[:])
-		_, _ = digest.Write([]byte(value))
-	}
-	var result Hash
-	copy(result[:], digest.Sum(nil))
-	return result
+	return Hash(idempotency.Fingerprint(bodySHA256, headers))
 }
 
 type ReservationRequest struct {

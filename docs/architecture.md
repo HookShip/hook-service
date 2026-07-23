@@ -45,7 +45,10 @@ producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one Pos
   source, nonce ledger, payload sealer, immutable payload object store,
   acceptance store, durable queue with fencing, metadata outbox,
   diagnostics/redrive, clock, and IDs). `internal/capabilities` owns the
-  versioned backend capability schema.
+  versioned backend capability schema. `internal/idempotency` is the
+  dependency-free home of the canonical request fingerprint and stable-header
+  identity, shared byte-for-byte by the runtime ports and the PostgreSQL
+  durability layer.
 - `internal/backend/{memory,postgres,relay,objectstore}` implement the profiles
   and the S3-compatible payload store; the `postgres` backend wraps
   `internal/durability/postgres`. `internal/keyprovider` is the payload

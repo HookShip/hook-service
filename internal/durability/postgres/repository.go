@@ -37,7 +37,7 @@ func (r *Repository) ReserveIdempotency(
 	if err := validateText("idempotency key", request.IdempotencyKey, 255); err != nil {
 		return ReservationResult{}, err
 	}
-	if err := request.Headers.validate(); err != nil {
+	if err := validateStableHeaders(request.Headers); err != nil {
 		return ReservationResult{}, err
 	}
 	if request.ReservedAt.IsZero() {

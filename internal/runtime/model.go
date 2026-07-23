@@ -3,6 +3,8 @@ package runtime
 import (
 	"strings"
 	"time"
+
+	"github.com/hookship/hook-service/internal/idempotency"
 )
 
 // Environment classifies an assignment. Evaluation assignments may authenticate
@@ -60,13 +62,10 @@ type EndpointConfig struct {
 }
 
 // StableHeaders are the signed producer identity headers bound to the
-// idempotency fingerprint. Replay-only fields are intentionally excluded.
-type StableHeaders struct {
-	EventID     string
-	EventType   string
-	Route       string
-	ContentType string
-}
+// idempotency fingerprint. Replay-only fields are intentionally excluded. It is
+// an alias for idempotency.Headers so the canonical fingerprint identity is
+// defined in exactly one place and shared across every profile.
+type StableHeaders = idempotency.Headers
 
 // ReservationRequest reserves an idempotency identity before the acceptance
 // barrier is crossed.

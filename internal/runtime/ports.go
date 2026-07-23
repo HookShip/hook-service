@@ -2,10 +2,10 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"time"
+
+	"github.com/hookship/hook-service/internal/idempotency"
 )
 
 // Sentinel errors mapped by the ingest and worker layers to protocol behavior.
@@ -41,27 +41,11 @@ const JobKindDispatch = "dispatch"
 
 // RequestFingerprint binds the exact body hash and every stable signed header.
 // Replay-only timestamp, nonce, signature, and credential ID are excluded so a
-// legitimate retry with fresh replay fields matches. It is byte-identical to the
-// PostgreSQL durability fingerprint so canonical identities agree across
-// profiles.
+// legitimate retry with fresh replay fields matches. It delegates to the shared
+// idempotency package so it is byte-identical to the PostgreSQL durability
+// fingerprint and canonical identities agree across profiles.
 func RequestFingerprint(bodySHA256 Hash, headers StableHeaders) Hash {
-	digest := sha256.New()
-	_, _ = digest.Write([]byte("hookship-idempotency-fingerprint-v1\x00"))
-	_, _ = digest.Write(bodySHA256[:])
-	for _, value := range []string{
-		headers.EventID,
-		headers.EventType,
-		headers.Route,
-		headers.ContentType,
-	} {
-		var length [4]byte
-		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
-		_, _ = digest.Write(length[:])
-		_, _ = digest.Write([]byte(value))
-	}
-	var result Hash
-	copy(result[:], digest.Sum(nil))
-	return result
+	return Hash(idempotency.Fingerprint(bodySHA256, headers))
 }
 
 // AssignmentSource resolves a verified credential to its immutable assignment
