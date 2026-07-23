@@ -1,0 +1,176 @@
+# Tag- and approval-driven release of hook-service.
+#
+# A maintainer cuts a release by pushing an annotated, signed `vX.Y.Z` tag from a
+# protected-branch commit that already passed CI. Pushing the tag runs every
+# existing gate plus a snapshot build (verify job) and then, only after the
+# protected `release` environment is approved, builds the tagged artifacts,
+# pushes a multi-arch image to GHCR, signs it keylessly, records a build
+# provenance attestation, and publishes a GitHub Release with the archives,
+# checksums, and SPDX SBOMs. `workflow_dispatch` runs the gates only and never
+# publishes.
+#
+# Trust is credential-gated: nothing publishes until the `release` environment's
+# required-reviewer approval is satisfied. The GHCR image is derived from the
+# actual repository (`ghcr.io/<owner>/<repo>`), pushed with the built-in
+# GITHUB_TOKEN, and signed keylessly via OIDC (id-token) with no committed token.
+# Any external registry or KMS-backed signing is a repository-settings concern:
+# provision it as an environment-scoped secret and extend this wrapper — never
+# commit a credential here.
+#
+# Every third-party action is pinned to a full commit SHA (see
+# scripts/validate-docs.py, which enforces the pinned-action manifest).
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify release gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Install independent JSON Schema validator
+        run: >-
+          python3 -m pip install
+          --disable-pip-version-check
+          --no-input
+          --requirement requirements-spec.txt
+
+      - name: Run repository checks
+        run: make ci
+
+      - name: Build snapshot artifacts (no publish)
+        run: go run ./scripts/release snapshot
+
+      - name: Confirm the release tag is annotated
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" != "tag" ]; then
+            echo "release tag ${GITHUB_REF_NAME} must be an annotated, signed tag per RELEASE_POLICY.md" >&2
+            exit 1
+          fi
+
+  release:
+    name: Publish release and image
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # The `release` environment carries the required-reviewer approval and the
+    # publishing trust. Nothing below runs until that gate is satisfied.
+    environment: release
+    permissions:
+      contents: write # create the GitHub release and upload assets
+      packages: write # push the multi-arch image to GHCR
+      id-token: write # OIDC for cosign keyless signing and provenance attestation
+      attestations: write # record the build provenance attestation
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          cache: false
+
+      - name: Resolve build metadata
+        id: meta-build
+        run: |
+          set -euo pipefail
+          echo "date=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build tagged release artifacts
+        run: go run ./scripts/release build -version "${GITHUB_REF_NAME}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags and labels
+        id: image-meta
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 # v5.6.1
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          # Pre-release: no floating `latest` tag is claimed.
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+
+      - name: Build and push the multi-arch image
+        id: build
+        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355 # v6.10.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image-meta.outputs.tags }}
+          labels: ${{ steps.image-meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta-build.outputs.date }}
+          # buildx attaches SLSA provenance and an SBOM to the image manifest.
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      - name: Sign the image keylessly (OIDC)
+        run: cosign sign --yes "${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+
+      - name: Attest build provenance for the image
+        uses: actions/attest-build-provenance@7668571508540a607bdfd90a87a560489fe372eb # v2.1.0
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish the GitHub Release with signed artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          --title "${GITHUB_REF_NAME}"
+          --verify-tag
+          --generate-notes
+          dist/hook-service_*

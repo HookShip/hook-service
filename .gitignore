@@ -1,4 +1,5 @@
 /bin/
+/dist/
 *.out
 coverage.*
 .DS_Store
