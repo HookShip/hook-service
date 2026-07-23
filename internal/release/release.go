@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -47,6 +48,51 @@ func Targets() []Target {
 
 // Binaries are the two artifacts every archive contains.
 func Binaries() []string { return []string{"hookshipd", "hookshipctl"} }
+
+// GHCRHost is the container registry host for published images.
+const GHCRHost = "ghcr.io"
+
+// NormalizeImageRef returns the lowercase GHCR image reference for an
+// "owner/repo" repository slug (such as GITHUB_REPOSITORY). GHCR and the OCI
+// distribution spec require lowercase names, while GitHub owners and repos may
+// be mixed case, so the reference is lowercased exactly once here and reused as
+// the single normalized subject for the pushed tags, the cosign signature, and
+// the provenance attestation.
+//
+//	"HookShip/hook-service" -> "ghcr.io/hookship/hook-service"
+func NormalizeImageRef(repository string) (string, error) {
+	repo := strings.TrimSpace(repository)
+	if repo == "" {
+		return "", errors.New("repository is required (owner/repo)")
+	}
+	lower := strings.ToLower(repo)
+	parts := strings.Split(lower, "/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("repository must be owner/repo, got %q", repository)
+	}
+	for _, part := range parts {
+		if !isImageSegment(part) {
+			return "", fmt.Errorf("repository segment %q is not a valid image name component", part)
+		}
+	}
+	return GHCRHost + "/" + lower, nil
+}
+
+// isImageSegment reports whether s is a non-empty lowercase image path segment
+// ([a-z0-9._-]+). Uppercase input is rejected so callers must lowercase first.
+func isImageSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // ArchiveFile is one entry in a release archive.
 type ArchiveFile struct {

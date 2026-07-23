@@ -10,12 +10,18 @@
 # publishes.
 #
 # Trust is credential-gated: nothing publishes until the `release` environment's
-# required-reviewer approval is satisfied. The GHCR image is derived from the
-# actual repository (`ghcr.io/<owner>/<repo>`), pushed with the built-in
-# GITHUB_TOKEN, and signed keylessly via OIDC (id-token) with no committed token.
-# Any external registry or KMS-backed signing is a repository-settings concern:
-# provision it as an environment-scoped secret and extend this wrapper — never
-# commit a credential here.
+# required-reviewer approval is satisfied. Before any artifact or image is
+# published, the release job fail-closed verifies the tag is annotated AND
+# carries a good signature from the trusted key provided by the protected
+# environment secret RELEASE_TAG_GPG_PUBLIC_KEY (never committed; see
+# docs/releasing.md). The GHCR image reference is normalized to lowercase once
+# and reused as the single subject for the pushed tags, the cosign signature,
+# and the provenance attestation. The image is derived from the actual
+# repository (`ghcr.io/<owner>/<repo>`), pushed with the built-in GITHUB_TOKEN,
+# and signed keylessly via OIDC (id-token) with no committed token. Any external
+# registry or KMS-backed signing is a repository-settings concern: provision it
+# as an environment-scoped secret and extend this wrapper — never commit a
+# credential here.
 #
 # Every third-party action is pinned to a full commit SHA (see
 # scripts/validate-docs.py, which enforces the pinned-action manifest).
@@ -68,6 +74,8 @@ jobs:
 
       - name: Confirm the release tag is annotated
         if: startsWith(github.ref, 'refs/tags/v')
+        # Early, credential-free signal. Full fail-closed signature verification
+        # against the trusted key runs in the release job before any publish.
         run: |
           set -euo pipefail
           if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" != "tag" ]; then
@@ -89,8 +97,6 @@ jobs:
       packages: write # push the multi-arch image to GHCR
       id-token: write # OIDC for cosign keyless signing and provenance attestation
       attestations: write # record the build provenance attestation
-    env:
-      IMAGE_NAME: ghcr.io/${{ github.repository }}
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -103,6 +109,25 @@ jobs:
         with:
           go-version: 1.26.5
           cache: false
+
+      - name: Verify the release tag signature (fail closed)
+        # Refuses to proceed unless the tag is annotated AND carries a good
+        # signature from the trusted key. The public key is provided by the
+        # protected `release` environment secret RELEASE_TAG_GPG_PUBLIC_KEY and
+        # is never committed. See docs/releasing.md for the required setting.
+        env:
+          RELEASE_TAG_GPG_PUBLIC_KEY: ${{ secrets.RELEASE_TAG_GPG_PUBLIC_KEY }}
+        run: ./scripts/verify-release-tag.sh "${GITHUB_REF_NAME}"
+
+      - name: Normalize the GHCR image reference (lowercase, once)
+        id: image
+        # Single source of truth: the same lowercase reference is reused for the
+        # metadata tags, build/push, cosign subject, and the attestation, so a
+        # mixed-case owner (e.g. HookShip/…) never yields an inconsistent or
+        # unsigned subject.
+        run: |
+          set -euo pipefail
+          echo "ref=$(go run ./scripts/release image-ref)" >> "$GITHUB_OUTPUT"
 
       - name: Resolve build metadata
         id: meta-build
@@ -127,7 +152,7 @@ jobs:
         id: image-meta
         uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96 # v5.6.1
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ steps.image.outputs.ref }}
           # Pre-release: no floating `latest` tag is claimed.
           flavor: latest=false
           tags: |
@@ -156,12 +181,12 @@ jobs:
         uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
 
       - name: Sign the image keylessly (OIDC)
-        run: cosign sign --yes "${IMAGE_NAME}@${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "${{ steps.image.outputs.ref }}@${{ steps.build.outputs.digest }}"
 
       - name: Attest build provenance for the image
         uses: actions/attest-build-provenance@7668571508540a607bdfd90a87a560489fe372eb # v2.1.0
         with:
-          subject-name: ${{ env.IMAGE_NAME }}
+          subject-name: ${{ steps.image.outputs.ref }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 

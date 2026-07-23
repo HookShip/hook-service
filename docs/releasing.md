@@ -72,5 +72,40 @@ cd dist && sha256sum -c *_checksums.txt   # or: shasum -a 256 -c
   workflow, which runs this same tool under a protected environment. No token or
   registry identity lives in this repository.
 
+## Publishing workflow
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) is tag- and
+approval-gated. On a `vX.Y.Z` tag it runs the gates, then, only after the
+protected `release` environment is approved, it publishes. Two properties are
+enforced fail-closed before anything is published:
+
+- **Tag signature verification.** [`scripts/verify-release-tag.sh`](../scripts/verify-release-tag.sh)
+  refuses to proceed unless the tag is annotated **and** produces a good GnuPG
+  signature from the trusted key. The org
+  [release policy](https://github.com/HookShip/.github/blob/main/RELEASE_POLICY.md)
+  requires signed, verifiable tags. Verified locally by
+  [`scripts/verify-release-tag.test.sh`](../scripts/verify-release-tag.test.sh)
+  (fail-closed cases always; signature cases where `gpg` is present).
+- **One normalized image reference.** The GHCR reference is lowercased once via
+  `go run ./scripts/release image-ref` (backed by
+  [`release.NormalizeImageRef`](../internal/release/release.go), unit-tested) so
+  a mixed-case owner such as `HookShip/hook-service` yields
+  `ghcr.io/hookship/hook-service`. That single subject is reused for the pushed
+  tags, the cosign signature, and the provenance attestation, so the signed
+  digest and the pushed digest never diverge.
+
+### External settings (never committed)
+
+These must be configured in repository/organization settings before a release:
+
+| Setting | Purpose |
+| --- | --- |
+| `release` environment + required reviewers | Gate publishing behind human approval |
+| `RELEASE_TAG_GPG_PUBLIC_KEY` (environment secret) | The trusted public key used to verify the release tag signature. Provide the ASCII-armored public key; the private signing key stays with the maintainer and is never stored in the repo or CI. |
+| Branch/tag protection, required checks | Per the org release policy |
+
+Any external registry or KMS-backed signing beyond GHCR keyless is likewise a
+protected-environment secret and is never committed here.
+
 `hook-service` is pre-release (`v0.x`) and has **no** published release yet;
 this document describes how a release is built once one is cut.

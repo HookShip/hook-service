@@ -29,7 +29,11 @@ the [placement policy](https://github.com/HookShip/.github/blob/main/REPOSITORY_
   signs it keylessly with cosign via OIDC, records a SLSA build-provenance
   attestation, and publishes a GitHub Release. Publishing runs only in a
   protected environment; every third-party action is pinned to a commit SHA and
-  no token is committed. External registry or KMS-backed signing stays
+  no token is committed. Before any publish it fail-closed verifies the tag is
+  annotated and carries a good signature from a trusted key supplied as a
+  protected-environment secret (never committed), and it normalizes the GHCR
+  reference to lowercase once so the pushed tags, cosign signature, and
+  attestation share one subject. External registry or KMS-backed signing stays
   credential-gated in repository settings.
 - **Single-VM packaging.** The service is packaged for one Linux VM with
   hardened systemd units and an install/uninstall flow, plus source-build and

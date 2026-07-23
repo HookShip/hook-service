@@ -129,10 +129,67 @@ def check_workflow_pins() -> list[str]:
     return failures
 
 
+# A ghcr.io reference literal, up to the first delimiter.
+GHCR_REF = re.compile(r"ghcr\.io/([^\s\"'`|)]+)")
+
+
+def _ghcr_scan_files() -> list[Path]:
+    files = list(markdown_files())
+    workflow_dir = REPO_ROOT / ".github" / "workflows"
+    if workflow_dir.is_dir():
+        files += sorted(workflow_dir.glob("*.yml"))
+    deploy = REPO_ROOT / "deploy"
+    if deploy.is_dir():
+        files += sorted(deploy.rglob("*.example"))
+        files += sorted(deploy.rglob("*.yaml"))
+    return files
+
+
+def check_release_integrity() -> list[str]:
+    """Enforce a single, lowercase, verified GHCR subject in the release path."""
+    failures: list[str] = []
+
+    # 1. No uppercase GHCR reference literal anywhere (docs, workflows, examples).
+    for path in _ghcr_scan_files():
+        rel = path.relative_to(REPO_ROOT)
+        for match in GHCR_REF.finditer(path.read_text(encoding="utf-8")):
+            literal = match.group(1)
+            if "${{" in literal:
+                continue  # an unevaluated expression, checked structurally below
+            if literal != literal.lower():
+                failures.append(f"{rel}: uppercase GHCR reference 'ghcr.io/{literal}'")
+
+    # 2. Release workflow structural rules.
+    release = REPO_ROOT / ".github" / "workflows" / "release.yml"
+    if release.exists():
+        text = release.read_text(encoding="utf-8")
+        if "ghcr.io/${{ github.repository }}" in text:
+            failures.append(
+                "release.yml uses the raw ghcr.io/${{ github.repository }}; "
+                "normalize to lowercase once and reuse it"
+            )
+        if "steps.image.outputs.ref" not in text:
+            failures.append(
+                "release.yml does not reuse the normalized steps.image.outputs.ref subject"
+            )
+        # The normalized subject must be the cosign and attestation subject.
+        for needle in ("cosign sign --yes", "subject-name:"):
+            if needle in text and "steps.image.outputs.ref" not in text.split(needle, 1)[1][:120]:
+                failures.append(
+                    f"release.yml: '{needle}' does not use the normalized image reference"
+                )
+        if "verify-release-tag.sh" not in text:
+            failures.append("release.yml does not run scripts/verify-release-tag.sh before publishing")
+        if "RELEASE_TAG_GPG_PUBLIC_KEY" not in text:
+            failures.append("release.yml does not reference the RELEASE_TAG_GPG_PUBLIC_KEY trusted-key secret")
+    return failures
+
+
 CHECKS = (
     ("links", check_links),
     ("stale phrases", check_stale_phrases),
     ("workflow pins", check_workflow_pins),
+    ("release integrity", check_release_integrity),
 )
 
 

@@ -54,7 +54,10 @@ type options struct {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: release <snapshot|build> [-output dir] [-version vX.Y.Z]")
+		return fmt.Errorf("usage: release <snapshot|build|image-ref> [-output dir] [-version vX.Y.Z]")
+	}
+	if args[0] == "image-ref" {
+		return runImageRef(args[1:])
 	}
 	opts := options{mode: args[0], output: "dist"}
 	rest := args[1:]
@@ -226,6 +229,25 @@ func run(args []string) error {
 	}
 
 	fmt.Printf("release: wrote %d artifacts + checksums + manifest to %s\n", len(artifacts), opts.output)
+	return nil
+}
+
+// runImageRef prints the normalized lowercase GHCR image reference for the
+// repository, defaulting to the GITHUB_REPOSITORY environment variable. It is
+// the single source of truth the release workflow uses so the pushed image, the
+// cosign subject, and the provenance attestation all share one lowercase name.
+func runImageRef(args []string) error {
+	repository := os.Getenv("GITHUB_REPOSITORY")
+	if len(args) == 1 {
+		repository = args[0]
+	} else if len(args) > 1 {
+		return fmt.Errorf("usage: release image-ref [owner/repo]")
+	}
+	ref, err := release.NormalizeImageRef(repository)
+	if err != nil {
+		return err
+	}
+	fmt.Println(ref)
 	return nil
 }
 

@@ -220,3 +220,33 @@ func TestTargetsAndBinaries(t *testing.T) {
 		t.Fatalf("binaries = %v", Binaries())
 	}
 }
+
+func TestNormalizeImageRefLowercases(t *testing.T) {
+	cases := map[string]string{
+		"HookShip/hook-service":   "ghcr.io/hookship/hook-service",
+		"hookship/hook-service":   "ghcr.io/hookship/hook-service",
+		"HOOKSHIP/HOOK-SERVICE":   "ghcr.io/hookship/hook-service",
+		" HookShip/Hook-Service ": "ghcr.io/hookship/hook-service",
+		"Owner/Repo.name_1":       "ghcr.io/owner/repo.name_1",
+	}
+	for input, want := range cases {
+		got, err := NormalizeImageRef(input)
+		if err != nil {
+			t.Fatalf("NormalizeImageRef(%q) error: %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("NormalizeImageRef(%q) = %q, want %q", input, got, want)
+		}
+		if got != strings.ToLower(got) {
+			t.Fatalf("NormalizeImageRef(%q) = %q is not lowercase", input, got)
+		}
+	}
+}
+
+func TestNormalizeImageRefRejectsInvalid(t *testing.T) {
+	for _, input := range []string{"", "   ", "no-slash", "owner/", "/repo", "owner/re po", "owner/re@po"} {
+		if got, err := NormalizeImageRef(input); err == nil {
+			t.Fatalf("NormalizeImageRef(%q) = %q, want error", input, got)
+		}
+	}
+}

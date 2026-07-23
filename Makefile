@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks migration-check release-snapshot release-clean spec-validate test test-integration test-race validate vet
+.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks migration-check release-snapshot release-clean release-verify-test spec-validate test test-integration test-race validate vet
 
 all: build
 
@@ -63,6 +63,9 @@ release-snapshot:
 
 release-clean:
 	rm -rf dist
+
+release-verify-test:
+	./scripts/verify-release-tag.test.sh
 
 gitleaks:
 	@command -v gitleaks >/dev/null 2>&1 || \

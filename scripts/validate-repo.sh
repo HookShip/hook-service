@@ -60,6 +60,7 @@ examples/README.md
 internal/release/release.go
 scripts/release/main.go
 scripts/validate-docs.py
+scripts/verify-release-tag.sh
 .github/workflows/release.yml
 go.mod
 go.sum
