@@ -107,5 +107,28 @@ These must be configured in repository/organization settings before a release:
 Any external registry or KMS-backed signing beyond GHCR keyless is likewise a
 protected-environment secret and is never committed here.
 
+## Local integration image artifact
+
+Separately from the registry release, `make integration-image` (a thin wrapper
+around [`scripts/build-integration-image.sh`](../scripts/build-integration-image.sh))
+produces a **local, credential-free** OCI/docker archive that an adjacent
+consumer — for example the platform integration harness — can load and verify
+without pulling from any registry and without spending on any hosted service.
+
+It writes, into `dist/integration/`:
+
+- `hook-service-integration-<commit>.tar` — a `docker save` archive of the image
+  built from this tree's [`Dockerfile`](../Dockerfile);
+- `SHA256SUMS` — a portable checksum of the archive bytes;
+- `manifest.json` — the image reference, the image id (config digest), the
+  archive filename and `archiveSha256`, and source provenance (commit, build
+  date, source URL).
+
+A consumer verifies the archive bytes (`archiveSha256`) before `docker load`,
+then confirms the loaded image identity (`imageId`) after load. This is an
+integration convenience only. It does **not** replace or weaken the release
+path: production consumers still pull the registry image by immutable
+`…@sha256:` digest via [`deploy/compose/compose.pull.yaml`](../deploy/compose/compose.pull.yaml).
+
 `hook-service` is pre-release (`v0.x`) and has **no** published release yet;
 this document describes how a release is built once one is cut.

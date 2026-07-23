@@ -59,6 +59,7 @@ docs/adr/0008-release-and-packaging.md
 examples/README.md
 internal/release/release.go
 scripts/release/main.go
+scripts/build-integration-image.sh
 scripts/validate-docs.py
 scripts/verify-release-tag.sh
 .github/workflows/release.yml

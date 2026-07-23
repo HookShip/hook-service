@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks migration-check release-snapshot release-clean release-verify-test spec-validate test test-integration test-race validate vet
+.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test spec-validate test test-integration test-race validate vet
 
 all: build
 
@@ -63,6 +63,12 @@ release-snapshot:
 
 release-clean:
 	rm -rf dist
+
+# integration-image builds a local, credential-free OCI/docker archive artifact
+# (dist/integration/) that an adjacent consumer can load and verify without any
+# registry pull. It requires Docker. The real release path stays digest-pinned.
+integration-image:
+	./scripts/build-integration-image.sh
 
 release-verify-test:
 	./scripts/verify-release-tag.test.sh

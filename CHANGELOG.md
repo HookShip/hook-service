@@ -36,6 +36,12 @@ throughput, or service-level claims, and it has not been independently audited.
   `scripts/release`, `make release-snapshot`) that builds reproducible
   cross-platform archives, a `sha256sum`-compatible checksum manifest, and SPDX
   2.3 SBOMs without a third-party release toolchain.
+- Local integration image artifact (`make integration-image`,
+  `scripts/build-integration-image.sh`): a credential-free `docker save`
+  OCI/docker archive under `dist/integration/` with a portable `SHA256SUMS` and
+  a `manifest.json` recording the image id and archive checksum, so an adjacent
+  consumer can load and verify the image without any registry pull. The registry
+  release path stays digest-pinned.
 - Tag- and approval-gated release workflow that builds tagged artifacts, pushes
   a multi-arch (linux/amd64+arm64) GHCR image, signs it keylessly with cosign
   via OIDC, records a SLSA build-provenance attestation, and publishes a GitHub
