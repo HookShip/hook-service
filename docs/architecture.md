@@ -15,14 +15,16 @@ dead-letter queue, payload-free status, and selectable native backend profiles.
 hookshipctl ──HTTP diagnostics──> hookshipd
                                       │
                                       ├── /healthz
-                                      └── /readyz
+                                      ├── /readyz
+                                      └── /statusz
 
-future ingest/runtime ──pgx──> one PostgreSQL 17+ regional cell
-                               ├── idempotency + immutable ingest
-                               ├── encrypted payload metadata/ciphertext
-                               ├── immutable endpoint snapshots
-                               ├── delivery + lease-based dispatch jobs
-                               └── immutable attempts + metadata outbox
+producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one PostgreSQL 17+ cell
+                                hookshipd (worker) ──┤   ├── idempotency + immutable ingest
+                                                     │   ├── encrypted payload metadata/ciphertext
+                                                     │   ├── immutable endpoint snapshots
+                                                     │   ├── delivery + lease-based dispatch jobs
+                                                     │   └── immutable attempts + metadata outbox
+                                                     └──> Standard Webhooks-signed delivery
 ```
 
 - `cmd/hookshipd` owns process startup, signal handling, configuration, and
@@ -73,13 +75,13 @@ The v1 protocol keeps three channels independent:
 
 ```text
 private control plane -- toolkit adapter_command --> first-party adapter
-producer ------------ event_ingest HTTP ---------> hook-service (future)
+producer ------------ event_ingest HTTP ---------> hook-service
 hook-service -------- toolkit metadata_ingest ---> private control plane
 ```
 
 - `adapter_command` is the existing toolkit control plane for adapter
   operations. It is not a producer event submission format.
-- `event_ingest` is the new producer data plane. It authenticates a scoped
+- `event_ingest` is the producer data plane. It authenticates a scoped
   assignment, preserves the exact HTTP entity body, and acknowledges only
   after the v1 durability barrier.
 - `metadata_ingest` is the existing toolkit channel for canonical,
@@ -108,6 +110,8 @@ prevent cross-assignment lineage, and a deferred commit-barrier trigger
 requires committed payload, immutable ingest, delivery, and ready dispatch
 job state before an idempotency ledger can commit.
 
-The next phase may implement the authenticated event-ingest boundary against
-this transaction API. Outbound delivery workers, runtime control-plane
-endpoints, and cloud integration still require separate review.
+The authenticated event-ingest boundary, the outbound delivery worker, and the
+S3-compatible object-store payload backend are implemented against this
+transaction API. A hosted multi-tenant control plane remains out of scope for
+this repository, and this project makes no capacity, availability, or
+service-level claims and has not been independently audited.

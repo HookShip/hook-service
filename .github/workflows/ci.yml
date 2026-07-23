@@ -14,6 +14,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Organization baseline: consume the shared reusable Go validation and
+  # secret-scan building blocks from HookShip/.github. Per the org workflows
+  # README, "@main" is the documented pre-release ref until that repository
+  # publishes release refs. These run alongside — not instead of — the
+  # repository-specific jobs below (comprehensive `make ci`, gitleaks, the
+  # PostgreSQL/Redis/MinIO integration suite, and the container build).
+  org-go-validate:
+    name: Org Go validation
+    uses: HookShip/.github/.github/workflows/reusable-go-validate.yml@main
+    with:
+      go-version: "1.26.5"
+
+  org-secret-scan:
+    name: Org secret scan
+    uses: HookShip/.github/.github/workflows/reusable-secret-scan.yml@main
+
+  docs:
+    name: Docs integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Offline link, stale-phrase, and workflow-pin checks
+        run: python3 scripts/validate-docs.py
+
   verify:
     name: Verify
     runs-on: ubuntu-latest

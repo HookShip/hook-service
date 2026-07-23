@@ -11,3 +11,4 @@ worker were implemented. They are pre-release decisions for `hook-service`
 - [0005 — SSRF-safe pinned-address transport](0005-ssrf-safe-transport.md)
 - [0006 — Ephemeral memory profile is evaluation-only](0006-memory-evaluation-only.md)
 - [0007 — Dispatch relays without dual writes](0007-dispatch-relays-no-dual-write.md)
+- [0008 — Deterministic release tooling and single-VM packaging](0008-release-and-packaging.md)

@@ -63,10 +63,15 @@ make build VERSION=v0.1.0 COMMIT="$(git rev-parse HEAD)" BUILD_DATE=2026-01-01T0
 ```
 
 The reviewed protocol is under [`../spec/v1/`](../spec/v1/). The durability
-model is under [`durability.md`](durability.md). Do not add the public ingest
-handler, delivery workers, or runtime control-plane behavior before their
-remaining gates in [`../spec/README.md`](../spec/README.md) are satisfied.
+model is under [`durability.md`](durability.md). The ingest handler, delivery
+worker, and native backend profiles are implemented; keep new work within the
+delivery data-plane scope and the reviewed contract, and do not add
+control-plane or hosted-platform behavior that belongs in another repository
+(see [`../README.md`](../README.md) for the repository topology).
 Keep dependencies minimal and justify any new one in the pull request.
+
+Build and validate release artifacts locally with the repo-native tool
+(`make release-snapshot`); see [`releasing.md`](releasing.md).
 
 The standard-library Go validator is always run. CI installs
 `requirements-spec.txt` and requires the independent Draft 2020-12 validator;

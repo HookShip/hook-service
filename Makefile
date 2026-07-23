@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci diff-check fmt fmt-check gitleaks migration-check release-snapshot release-clean spec-validate test test-integration test-race validate vet
+.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks migration-check release-snapshot release-clean spec-validate test test-integration test-race validate vet
 
 all: build
 
@@ -46,6 +46,9 @@ vet:
 validate:
 	./scripts/validate-repo.sh
 
+docs-check:
+	python3 scripts/validate-docs.py
+
 spec-validate:
 	$(GO) test -count=1 ./internal/specvalidation
 
@@ -66,7 +69,7 @@ gitleaks:
 		{ echo "gitleaks is required for make gitleaks" >&2; exit 1; }
 	gitleaks detect --no-banner --redact --source .
 
-check: fmt-check validate spec-validate migration-check vet test test-race build diff-check
+check: fmt-check validate docs-check spec-validate migration-check vet test test-race build diff-check
 
 ci: check
 

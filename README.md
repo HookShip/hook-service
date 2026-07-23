@@ -1,8 +1,10 @@
 # HookShip delivery service
 
-`hook-service` is the portable outbound webhook delivery data-plane foundation
-for HookShip. This repository establishes the process, operational, protocol,
-and single-cell durability boundaries needed before delivery execution.
+`hook-service` is the portable outbound webhook delivery data plane for
+HookShip. It implements authenticated producer ingest, durable idempotent
+acceptance, Standard Webhooks-compatible signing, an SSRF-safe delivery worker
+with retries and a dead-letter queue, payload-free status, and selectable native
+backend profiles, packaged for a single Linux VM.
 
 > **Status:** pre-release (`v0.x`). This repository now implements the outbound
 > delivery runtime: protocol-v1 authenticated ingest, idempotent durable
@@ -98,6 +100,24 @@ barrier in every durable profile.
 The image does not bake in a fixed-port healthcheck. Deployments that override
 the listener must define a matching probe.
 
+## Deploy to a single VM
+
+The [`deploy/`](deploy/README.md) directory packages the service for one Linux
+VM with hardened systemd units and an install/uninstall flow, plus source-build
+and pull-based (immutable-digest) Compose paths, and operational scripts for
+backup, restore, upgrade, schema-compatible rollback, key rotation, and a
+restore drill.
+
+```sh
+# Native systemd install (builds binaries if Go is present):
+sudo deploy/scripts/install.sh
+# Or an all-in-one Compose stack (source build):
+deploy/scripts/compose-up.sh build
+```
+
+See [`docs/deployment.md`](docs/deployment.md) and the
+[operational runbooks](docs/runbooks/README.md).
+
 ## Design boundaries
 
 - Standard library first; direct Go dependencies are pinned and verified
@@ -127,14 +147,38 @@ See [`docs/backends.md`](docs/backends.md), [`docs/durability.md`](docs/durabili
 
 - [Configuration](docs/configuration.md)
 - [Operations](docs/operations.md)
+- [Deployment (single VM)](docs/deployment.md)
+- [Operational runbooks](docs/runbooks/README.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Architecture](docs/architecture.md)
 - [Backend profiles and capabilities](docs/backends.md)
 - [Durability model](docs/durability.md)
+- [Compatibility matrix](docs/compatibility-matrix.md)
+- [Releasing](docs/releasing.md)
 - [Architecture decision records](docs/adr/)
 - [Development](docs/development.md)
 - [Provenance](docs/provenance.md)
+- [Changelog](CHANGELOG.md), [Roadmap](ROADMAP.md), [Governance](GOVERNANCE.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+
+## Related repositories
+
+HookShip spans four repositories. Work belongs in the one that owns the affected
+behavior; this repository owns the delivery data plane, protocol, and deployment
+surface. The authoritative topology is the organization
+[repository placement policy](https://github.com/HookShip/.github/blob/main/REPOSITORY_PLACEMENT.md)
+and [source-of-truth rules](https://github.com/HookShip/.github/blob/main/SOURCE_OF_TRUTH.md).
+
+- [`HookShip/toolkit`](https://github.com/HookShip/toolkit) — public libraries,
+  CLI, adapters, webhook contracts, and signing primitives. It is the source of
+  truth for the contract and signing behavior this protocol builds on; this
+  repository references those rather than restating them.
+- [`HookShip/.github`](https://github.com/HookShip/.github) — organization
+  policy, community-health defaults, and the reusable CI workflows this
+  repository consumes.
+- `HookShip/platform` — the private managed control plane. It consumes this data
+  plane's protocol and never holds a competing public specification.
 
 ## License
 

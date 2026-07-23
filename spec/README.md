@@ -16,15 +16,14 @@ commands never carry producer event bodies.
 
 ## Implementation status
 
-The v1 contract satisfies the protocol-definition gate. The repository now
-contains the reviewed PostgreSQL durability model for:
+The v1 contract satisfies the protocol-definition gate, and the repository
+implements it: the reviewed PostgreSQL durability model, the authenticated
+public event-ingest handler, the outbound delivery worker, and the
+S3-compatible object-store payload backend all run against this contract.
 
-1. concrete persistence, idempotency, and pending recovery;
-2. encrypted payload storage metadata and deletion states;
-3. dispatch/outbox leasing, fencing, and immutable attempts.
-
-The public event-ingest handler, outbound delivery worker, cloud storage
-adapter, capacity claims, and implementation security review remain separate
-gates. No runtime endpoint may claim conformance merely because the protocol
-or persistence library exists. Run `make spec-validate` to validate the
-versioned artifacts and see [`../docs/durability.md`](../docs/durability.md).
+The contract remains the source of truth: a runtime endpoint conforms only when
+it satisfies the versioned artifacts, not merely because the protocol or a
+persistence library exists. Capacity/throughput claims and an independent
+implementation security review are explicitly out of scope and are not asserted.
+Run `make spec-validate` to validate the versioned artifacts and see
+[`../docs/durability.md`](../docs/durability.md).

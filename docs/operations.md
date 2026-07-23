@@ -138,6 +138,6 @@ grace period longer than that value.
 ## Logging
 
 `hookshipd` writes JSON process lifecycle and server error events to standard
-error. There is no HTTP request or payload logging. Deployment layers should
-also avoid capturing sensitive webhook payloads when delivery functionality is
-introduced in a later phase.
+error. There is no HTTP request or payload logging. Attempts, outbox rows,
+status, and the `/statusz` operator metrics are payload-free; deployment layers
+should likewise avoid capturing sensitive webhook payloads.
