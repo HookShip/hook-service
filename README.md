@@ -23,8 +23,9 @@ backend profiles, packaged for a single Linux VM.
 - `hookshipd`: one binary with explicit modes — `api` (ingest and status),
   `worker` (dispatch, retry, DLQ, metadata outbox), and `all` (single process).
   It also prints machine-readable backend capabilities.
-- `hookshipctl`: `version`, `diagnostics`, `doctor`, `migrate`, and
-  `backend list|describe|validate`.
+- `hookshipctl`: `version`, `diagnostics`, `doctor`, `migrate`,
+  `backend list|describe|validate`, and `redrive list|run` (payload-free
+  dead-letter inspection and explicit operator redrive).
 - Protocol-v1 producer data plane: exact-body HMAC authentication, nonce replay
   protection, assignment authorization, idempotent acceptance across the
   durability barrier, and payload-free `GET` status, all returning bounded

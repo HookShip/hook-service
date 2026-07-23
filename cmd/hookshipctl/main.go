@@ -37,6 +37,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runMigrate(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "backend":
 		return runBackend(args[1:], os.Getenv, stdout, stderr)
+	case "redrive":
+		return runRedrive(ctx, args[1:], os.Getenv, stdout, stderr)
 	case "help", "-h", "--help":
 		printUsage(stdout)
 		return 0
@@ -194,5 +196,7 @@ func printUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, "  backend list       List native runtime profiles and capabilities")
 	_, _ = fmt.Fprintln(output, "  backend describe   Describe one profile's capability document")
 	_, _ = fmt.Fprintln(output, "  backend validate   Validate a backend selection")
+	_, _ = fmt.Fprintln(output, "  redrive list       List payload-free dead-letter (DLQ) jobs")
+	_, _ = fmt.Fprintln(output, "  redrive run        Redrive dead jobs via the supported control path")
 	_, _ = fmt.Fprintln(output, "  version            Print build metadata")
 }

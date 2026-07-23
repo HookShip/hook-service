@@ -72,8 +72,17 @@ hookshipctl doctor             # validate configuration and backend selection
 hookshipctl backend list       # list profiles and capabilities
 hookshipctl backend describe postgres
 hookshipctl backend validate -config hookship.yaml
+hookshipctl redrive list       # list payload-free dead-letter (DLQ) jobs
+hookshipctl redrive run -assignment asg_orders --all   # explicit operator redrive
 hookshipd capabilities -output=json
 ```
+
+`hookshipctl redrive` is the supported dead-letter recovery path: it drives the
+same runtime backend ports the worker uses (`ListDeadJobs`, `RedriveJob`) rather
+than mutating rows directly, and prints only payload-free job metadata (ids,
+attempt counts, error codes) — never payload bytes or secrets. It reads the same
+`HOOKSHIP_BACKEND`/`HOOKSHIP_DATABASE_URL`/`HOOKSHIP_CONFIG_FILE` configuration
+as the daemon.
 
 `/readyz` reports the profile durability (`ephemeral`, `disk`, or `replicated`)
 and fails closed when the backend is unreachable.

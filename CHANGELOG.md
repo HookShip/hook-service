@@ -31,7 +31,11 @@ throughput, or service-level claims, and it has not been independently audited.
   payload-free operator metrics on `/statusz`.
 - Forward-only PostgreSQL 17+ migrations with immutable checksums and a narrow
   pgx v5 repository; `hookshipd` (`api`/`worker`/`all`) and `hookshipctl`
-  (`version`, `diagnostics`, `doctor`, `migrate`, `backend …`).
+  (`version`, `diagnostics`, `doctor`, `migrate`, `backend …`, `redrive …`).
+- `hookshipctl redrive list|run`: an operator-facing dead-letter recovery
+  surface that drives the same runtime backend ports as the worker
+  (`ListDeadJobs`, `RedriveJob`) instead of mutating rows directly, and prints
+  only payload-free job metadata.
 - Repo-native, deterministic release tooling (`internal/release`,
   `scripts/release`, `make release-snapshot`) that builds reproducible
   cross-platform archives, a `sha256sum`-compatible checksum manifest, and SPDX
