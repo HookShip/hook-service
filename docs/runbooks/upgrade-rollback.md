@@ -35,10 +35,14 @@ For the systemd path the current binaries are snapshotted to
 
 ## Rollback
 
-`rollback.sh` performs a **schema-compatible** rollback. It deploys the previous
-version and probes compatibility by running that version's `hookshipctl migrate`,
-which fails closed if the database is ahead of the code. If the probe fails, it
-refuses to start the old version and tells you to restore instead.
+`rollback.sh` performs a **schema-compatible** rollback. It derives the actual
+Compose project network (rather than assuming a fixed name), deploys the
+previous version, and probes compatibility by running that version's
+`hookshipctl migrate`, which fails closed if the database is ahead of the code.
+The probe distinguishes three outcomes: schema-compatible (proceed),
+schema-incompatible (refuse and point at a restore), and "could not run the
+probe" (an unreachable database/network — it refuses without falsely claiming
+incompatibility).
 
 ```sh
 # systemd: redeploy the snapshotted previous binaries, probe, restart
@@ -46,7 +50,14 @@ sudo deploy/scripts/rollback.sh --mode systemd
 
 # Compose: pin the previous immutable digest, probe, restart
 deploy/scripts/rollback.sh --mode pull --image ghcr.io/<owner>/<repo>@sha256:<prev-digest>
+
+# Dry-run only the network derivation + compatibility probe (installs/restarts nothing):
+deploy/scripts/rollback.sh --mode systemd --check-only
+deploy/scripts/rollback.sh --mode pull --image ghcr.io/<owner>/<repo>@sha256:<prev-digest> --check-only
 ```
+
+Use `--check-only` before a real rollback to confirm the previous version is
+schema-compatible without touching the running service.
 
 If the rollback is rejected as schema-incompatible:
 

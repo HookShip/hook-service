@@ -14,6 +14,9 @@
 #   sudo deploy/scripts/rollback.sh --mode systemd [--to-bindir DIR] [--dsn DSN]
 #        deploy/scripts/rollback.sh --mode pull --image PREV@sha256:...
 #
+#   --check-only   Only derive the network and run the schema-compatibility
+#                  probe, then exit; install/restart nothing. Safe to dry-run.
+#
 # Default --to-bindir is /var/lib/hookship/rollback (populated by upgrade.sh).
 set -euo pipefail
 
@@ -25,6 +28,7 @@ MODE="systemd"
 TO_BINDIR="/var/lib/hookship/rollback"
 IMAGE=""
 DSN_ARG=""
+CHECK_ONLY="no"
 BIN_INSTALL_DIR="/usr/local/bin"
 
 while [ "$#" -gt 0 ]; do
@@ -33,7 +37,8 @@ while [ "$#" -gt 0 ]; do
 	--to-bindir) TO_BINDIR="${2:?}"; shift 2 ;;
 	--image) IMAGE="${2:?}"; shift 2 ;;
 	--dsn) DSN_ARG="${2:?}"; shift 2 ;;
-	-h | --help) sed -n '2,20p' "$0"; exit 0 ;;
+	--check-only) CHECK_ONLY="yes"; shift ;;
+	-h | --help) sed -n '2,22p' "$0"; exit 0 ;;
 	*) hs_die "unknown argument: $1" ;;
 	esac
 done
@@ -65,23 +70,29 @@ EOF
 
 case "${MODE}" in
 systemd)
-	[ "$(id -u)" -eq 0 ] || hs_die "systemd rollback must run as root"
 	[ -x "${TO_BINDIR}/hookshipd" ] && [ -x "${TO_BINDIR}/hookshipctl" ] ||
 		hs_die "previous binaries not found in ${TO_BINDIR} (was this deployment upgraded with upgrade.sh?)"
-	hs_require systemctl curl
-
-	hs_log "installing previous binaries from ${TO_BINDIR}"
-	install -o root -g root -m 0755 "${TO_BINDIR}/hookshipd" "${BIN_INSTALL_DIR}/hookshipd"
-	install -o root -g root -m 0755 "${TO_BINDIR}/hookshipctl" "${BIN_INSTALL_DIR}/hookshipctl"
 
 	hs_log "probing schema compatibility with the previous code"
 	DSN="$(hs_resolve_dsn "${DSN_ARG}")"
 	[ -n "${DSN}" ] || hs_die "no DSN to probe; pass --dsn or set the env file"
-	if ! HOOKSHIP_BACKEND=postgres HOOKSHIP_DATABASE_URL="${DSN}" "${BIN_INSTALL_DIR}/hookshipctl" migrate >/dev/null 2>&1; then
-		incompatible_message
-	fi
+	rc=0
+	hs_probe_migrate_compat env HOOKSHIP_BACKEND=postgres HOOKSHIP_DATABASE_URL="${DSN}" \
+		"${TO_BINDIR}/hookshipctl" migrate || rc=$?
+	case "${rc}" in
+	0) hs_log "schema-compatible with the previous code" ;;
+	1) incompatible_message ;;
+	2) hs_die "could not probe schema compatibility at $(hs_redact_dsn "${DSN}"); not rolling back" ;;
+	esac
+	[ "${CHECK_ONLY}" = "yes" ] && { hs_log "check-only: previous code is schema-compatible"; exit 0; }
 
-	hs_log "schema-compatible; restarting hookshipd on the previous version"
+	[ "$(id -u)" -eq 0 ] || hs_die "systemd rollback must run as root"
+	hs_require systemctl curl
+	hs_log "installing previous binaries from ${TO_BINDIR}"
+	install -o root -g root -m 0755 "${TO_BINDIR}/hookshipd" "${BIN_INSTALL_DIR}/hookshipd"
+	install -o root -g root -m 0755 "${TO_BINDIR}/hookshipctl" "${BIN_INSTALL_DIR}/hookshipctl"
+
+	hs_log "restarting hookshipd on the previous version"
 	systemctl restart hookshipd.service
 	if wait_ready "http://127.0.0.1:8080/readyz"; then
 		hs_log "rollback complete and ready"
@@ -93,14 +104,31 @@ systemd)
 pull)
 	[ -n "${IMAGE}" ] || hs_die "--image PREV@sha256:... (the previous immutable digest) is required"
 	case "${IMAGE}" in *@sha256:*) ;; *) hs_die "--image must be an immutable digest (…@sha256:…)" ;; esac
-	env_file="${SCRIPT_DIR}/../compose/.env"
+	hs_require docker
+	compose_dir="$(cd -- "${SCRIPT_DIR}/../compose" && pwd)"
+	compose_dir="${HS_COMPOSE_DIR:-${compose_dir}}"
+	env_file="${HS_COMPOSE_ENV_FILE:-${compose_dir}/.env}"
 	[ -f "${env_file}" ] || hs_die "compose .env not found"
+
+	hs_log "deriving the Compose project network"
+	network="$(hs_compose_network "${compose_dir}" compose.pull.yaml postgres)" ||
+		hs_die "the Compose stack is not running (no postgres container); start it before rolling back, or use --mode systemd"
+	[ -n "${network}" ] || hs_die "could not determine the Compose project network"
+	hs_log "using Compose network ${network}"
+
 	hs_log "probing schema compatibility of ${IMAGE} against the running database"
-	# The previous image's migrate fails closed if the DB is ahead of its code.
-	if ! docker run --rm --env-file "${env_file}" -e HOOKSHIP_BACKEND=postgres \
-		--network "hookship-deploy_default" --entrypoint /hookshipctl "${IMAGE}" migrate >/dev/null 2>&1; then
-		incompatible_message
-	fi
+	# The previous image's migrate fails closed if the DB is ahead of its code;
+	# hs_probe_migrate_compat only reports incompatible on that exact signal.
+	rc=0
+	hs_probe_migrate_compat docker run --rm --env-file "${env_file}" -e HOOKSHIP_BACKEND=postgres \
+		--network "${network}" --entrypoint /hookshipctl "${IMAGE}" migrate || rc=$?
+	case "${rc}" in
+	0) hs_log "schema-compatible with ${IMAGE}" ;;
+	1) incompatible_message ;;
+	2) hs_die "could not run the schema compatibility probe (image/network/database unreachable); not rolling back" ;;
+	esac
+	[ "${CHECK_ONLY}" = "yes" ] && { hs_log "check-only: ${IMAGE} is schema-compatible"; exit 0; }
+
 	hs_log "pinning previous image and restarting"
 	if grep -q '^HOOKSHIP_IMAGE=' "${env_file}"; then
 		sed -i.bak "s#^HOOKSHIP_IMAGE=.*#HOOKSHIP_IMAGE=${IMAGE}#" "${env_file}" && rm -f "${env_file}.bak"

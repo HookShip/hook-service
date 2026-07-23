@@ -21,7 +21,7 @@ case "$profile" in
 		;;
 esac
 
-repository_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+repository_root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 cd "$repository_root"
 
 fail_first=0

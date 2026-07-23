@@ -162,6 +162,9 @@ jobs:
       - name: Run migration and durability integration tests
         run: make migration-check test-integration
 
+      - name: Deploy recovery script smoke (real Compose network derivation)
+        run: ./deploy/scripts/test/smoke_compose_network.sh
+
   container:
     name: Container
     runs-on: ubuntu-latest

@@ -75,7 +75,7 @@ start_pg() {
 		attempt=$((attempt + 1))
 		sleep 1
 	done
-	printf 'postgres://hookship:%s@%s/hookship?sslmode=disable' "${PGPASS}" "${hostport}"
+	hs_pg_dsn hookship "${PGPASS}" "${hostport}" hookship
 }
 
 WORKDIR="$(mktemp -d)"

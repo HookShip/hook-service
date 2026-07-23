@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test spec-validate test test-integration test-race validate vet
+.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test shellcheck smoke-deploy spec-validate test test-integration test-race test-scripts validate vet
 
 all: build
 
@@ -55,6 +55,29 @@ spec-validate:
 migration-check:
 	$(GO) test -count=1 -run 'TestMigrationManifest' ./internal/durability/postgres
 
+# shellcheck lints every shell script with `-x` so sourced libraries (lib.sh)
+# are followed. The operational recovery scripts are safety-critical, so this is
+# part of the standard check.
+SHELL_SOURCES := $(shell find deploy/scripts scripts -name '*.sh') deploy/scripts/test/fakebin/docker
+
+shellcheck:
+	@command -v shellcheck >/dev/null 2>&1 || \
+		{ echo "shellcheck is required for make shellcheck" >&2; exit 1; }
+	shellcheck -x $(SHELL_SOURCES)
+
+# test-scripts runs the hermetic shell tests (pure lib.sh helpers plus rollback
+# probe classification with a fake docker). It needs only bash, so it runs in
+# the ordinary check lane alongside the Go tests.
+test-scripts:
+	./deploy/scripts/test/run.sh
+
+# smoke-deploy runs the real disposable-Postgres recovery drills. It requires
+# docker and the PostgreSQL client tools and is kept out of `check`; run it
+# locally or in an integration lane where those resources are available.
+smoke-deploy:
+	./deploy/scripts/test/smoke_compose_network.sh
+	./deploy/scripts/restore-drill.sh
+
 diff-check:
 	git diff --check
 
@@ -78,7 +101,7 @@ gitleaks:
 		{ echo "gitleaks is required for make gitleaks" >&2; exit 1; }
 	gitleaks detect --no-banner --redact --source .
 
-check: fmt-check validate docs-check spec-validate migration-check vet test test-race build diff-check
+check: fmt-check validate docs-check spec-validate migration-check shellcheck test-scripts vet test test-race build diff-check
 
 ci: check
 

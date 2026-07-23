@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Fake `docker` used by the hermetic rollback test. It records `docker run`
+# invocations and returns canned output so rollback.sh's network derivation and
+# migrate-probe classification can be exercised without a real Docker daemon.
+#
+# Behaviour is controlled by environment variables set by the test:
+#   HS_FAKE_NETWORK   network name reported by `docker inspect` (default set below)
+#   HS_FAKE_PS_EMPTY  when "1", `docker compose ps -q` prints nothing (stack down)
+#   HS_FAKE_MIGRATE   ok | incompat | error — outcome of `docker run ... migrate`
+#   HS_FAKE_RUN_LOG   file to append the full `docker run` argument line to
+set -euo pipefail
+
+sub="${1:-}"
+case "${sub}" in
+compose)
+	# Only the `ps -q <service>` form is used by hs_compose_network.
+	for arg in "$@"; do
+		if [ "${arg}" = "ps" ]; then
+			[ "${HS_FAKE_PS_EMPTY:-0}" = "1" ] && exit 0
+			printf 'fakecontainerid0000\n'
+			exit 0
+		fi
+	done
+	exit 0
+	;;
+inspect)
+	printf '%s\n' "${HS_FAKE_NETWORK:-hookship-deploy_default}"
+	exit 0
+	;;
+run)
+	[ -n "${HS_FAKE_RUN_LOG:-}" ] && printf '%s\n' "$*" >>"${HS_FAKE_RUN_LOG}"
+	case "${HS_FAKE_MIGRATE:-ok}" in
+	ok) exit 0 ;;
+	incompat)
+		echo "database contains forward migration 000009 (0009_thing.up.sql) missing from source" >&2
+		exit 1
+		;;
+	error)
+		echo "failed to connect to host=postgres: connection refused" >&2
+		exit 1
+		;;
+	esac
+	;;
+*)
+	exit 0
+	;;
+esac

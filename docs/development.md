@@ -4,6 +4,7 @@
 
 - Go 1.26.5 or newer
 - GNU Make or a compatible `make`
+- `shellcheck` for linting the operational shell scripts (`make shellcheck`)
 - PostgreSQL 17+ only for durability integration tests
 - Docker only for container validation or a disposable local PostgreSQL
 - Python 3 with the pinned `requirements-spec.txt` packages when running the
@@ -21,8 +22,22 @@ make build        # build bin/hookshipd and bin/hookshipctl
 make validate     # repository structure validation
 make spec-validate # validate v1 JSON, IDs, checksums, HMAC, and Ed25519
 make migration-check # validate immutable embedded migration checksums
-make check        # all local validation
+make shellcheck   # lint every shell script with `shellcheck -x`
+make test-scripts # hermetic tests for the operational recovery scripts
+make check        # all local validation (includes shellcheck + test-scripts)
 make gitleaks     # require and run the local gitleaks binary
+```
+
+The operational recovery scripts under `deploy/scripts/` are safety-critical, so
+`make check` lints them with `shellcheck` and runs hermetic shell tests
+(`deploy/scripts/test/`) that cover the pure `lib.sh` helpers and the
+`rollback.sh` network-derivation and migrate-probe classification (using a fake
+`docker` on `PATH`, so no daemon is required). The real disposable-Postgres and
+Compose smoke drills need docker and matching PostgreSQL client tools and run
+separately:
+
+```sh
+make smoke-deploy # real restore drill + real Compose network derivation
 ```
 
 Database integration tests are intentionally separate:
