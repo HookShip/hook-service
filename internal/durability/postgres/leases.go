@@ -35,30 +35,8 @@ func (r *jobQueue) ClaimJob(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE durable_jobs
-		SET
-			state = 'dead',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			completed_at = clock.now,
-			updated_at = clock.now,
-			last_error_code = COALESCE(last_error_code, 'attempts_exhausted')
-		FROM clock
-		WHERE assignment_id = $1
-		  AND kind = $2
-		  AND attempts >= max_attempts
-		  AND run_at <= clock.now
-		  AND (
-			  state IN ('ready', 'retry')
-			  OR (state = 'leased' AND lease_expires_at <= clock.now)
-		  )
-	`, assignmentID, kind); err != nil {
-		return Job{}, false, fmt.Errorf("mark exhausted jobs dead: %w", err)
+	if err := r.markExhaustedDead(ctx, tx, jobTable, assignmentID, kind); err != nil {
+		return Job{}, false, err
 	}
 
 	var job Job
@@ -146,35 +124,7 @@ func (r *jobQueue) CompleteJob(
 	ctx context.Context,
 	lease JobLease,
 ) error {
-	tag, err := r.pool.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE durable_jobs
-		SET
-			state = 'succeeded',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			completed_at = clock.now,
-			updated_at = clock.now,
-			last_error_code = NULL
-		FROM clock
-		WHERE assignment_id = $1
-		  AND job_id = $2
-		  AND state = 'leased'
-		  AND lease_owner = $3
-		  AND lease_token = $4
-		  AND attempts = $5
-		  AND lease_expires_at > clock.now
-	`, lease.AssignmentID, lease.JobID, lease.Owner, lease.Token, lease.Attempt)
-	if err != nil {
-		return fmt.Errorf("complete job: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrLeaseLost
-	}
-	return nil
+	return r.settleLeased(ctx, jobTable, "complete", setComplete, jobLeaseKey(lease))
 }
 
 func (r *jobQueue) RetryJob(
@@ -192,44 +142,7 @@ func (r *jobQueue) RetryJob(
 	if err != nil {
 		return err
 	}
-	tag, err := r.pool.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE durable_jobs
-		SET
-			state = CASE WHEN attempts >= max_attempts THEN 'dead'::hookship_work_state ELSE 'retry'::hookship_work_state END,
-			run_at = clock.now + $6::bigint * interval '1 microsecond',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			completed_at = CASE WHEN attempts >= max_attempts THEN clock.now ELSE NULL END,
-			updated_at = clock.now,
-			last_error_code = $7
-		FROM clock
-		WHERE assignment_id = $1
-		  AND job_id = $2
-		  AND state = 'leased'
-		  AND lease_owner = $3
-		  AND lease_token = $4
-		  AND attempts = $5
-		  AND lease_expires_at > clock.now
-	`,
-		lease.AssignmentID,
-		lease.JobID,
-		lease.Owner,
-		lease.Token,
-		lease.Attempt,
-		delayMicroseconds,
-		nullIfEmpty(errorCode),
-	)
-	if err != nil {
-		return fmt.Errorf("retry job: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrLeaseLost
-	}
-	return nil
+	return r.settleLeased(ctx, jobTable, "retry", setRetry, jobLeaseKey(lease), delayMicroseconds, nullIfEmpty(errorCode))
 }
 
 // FailJob terminally dead-letters a leased job regardless of remaining attempts.
@@ -245,43 +158,7 @@ func (r *jobQueue) FailJob(
 			return err
 		}
 	}
-	tag, err := r.pool.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE durable_jobs
-		SET
-			state = 'dead',
-			run_at = clock.now,
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			completed_at = clock.now,
-			updated_at = clock.now,
-			last_error_code = $6
-		FROM clock
-		WHERE assignment_id = $1
-		  AND job_id = $2
-		  AND state = 'leased'
-		  AND lease_owner = $3
-		  AND lease_token = $4
-		  AND attempts = $5
-		  AND lease_expires_at > clock.now
-	`,
-		lease.AssignmentID,
-		lease.JobID,
-		lease.Owner,
-		lease.Token,
-		lease.Attempt,
-		nullIfEmpty(errorCode),
-	)
-	if err != nil {
-		return fmt.Errorf("fail job: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrLeaseLost
-	}
-	return nil
+	return r.settleLeased(ctx, jobTable, "fail", setFail, jobLeaseKey(lease), nullIfEmpty(errorCode))
 }
 
 func (r *jobQueue) RecordAttemptAndOutbox(
@@ -436,29 +313,8 @@ func (r *outboxQueue) ClaimOutbox(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE metadata_outbox
-		SET
-			state = 'dead',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			updated_at = clock.now,
-			completed_at = clock.now,
-			last_error_code = COALESCE(last_error_code, 'attempts_exhausted')
-		FROM clock
-		WHERE assignment_id = $1
-		  AND attempts >= max_attempts
-		  AND run_at <= clock.now
-		  AND (
-			  state IN ('ready', 'retry')
-			  OR (state = 'leased' AND lease_expires_at <= clock.now)
-		  )
-	`, assignmentID); err != nil {
-		return OutboxItem{}, false, fmt.Errorf("mark exhausted outbox rows dead: %w", err)
+	if err := r.markExhaustedDead(ctx, tx, outboxTable, assignmentID, ""); err != nil {
+		return OutboxItem{}, false, err
 	}
 
 	var item OutboxItem
@@ -553,36 +409,7 @@ func (r *outboxQueue) PublishOutbox(
 	ctx context.Context,
 	lease OutboxLease,
 ) error {
-	tag, err := r.pool.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE metadata_outbox
-		SET
-			state = 'published',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			published_at = clock.now,
-			completed_at = clock.now,
-			updated_at = clock.now,
-			last_error_code = NULL
-		FROM clock
-		WHERE assignment_id = $1
-		  AND outbox_id = $2
-		  AND state = 'leased'
-		  AND lease_owner = $3
-		  AND lease_token = $4
-		  AND attempts = $5
-		  AND lease_expires_at > clock.now
-	`, lease.AssignmentID, lease.OutboxID, lease.Owner, lease.Token, lease.Attempt)
-	if err != nil {
-		return fmt.Errorf("publish outbox row: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrLeaseLost
-	}
-	return nil
+	return r.settleLeased(ctx, outboxTable, "publish", setPublish, outboxLeaseKey(lease))
 }
 
 func (r *outboxQueue) RetryOutbox(
@@ -600,44 +427,7 @@ func (r *outboxQueue) RetryOutbox(
 	if err != nil {
 		return err
 	}
-	tag, err := r.pool.Exec(ctx, `
-		WITH clock AS MATERIALIZED (
-			SELECT clock_timestamp() AS now
-		)
-		UPDATE metadata_outbox
-		SET
-			state = CASE WHEN attempts >= max_attempts THEN 'dead'::hookship_work_state ELSE 'retry'::hookship_work_state END,
-			run_at = clock.now + $6::bigint * interval '1 microsecond',
-			lease_owner = NULL,
-			lease_token = NULL,
-			lease_expires_at = NULL,
-			completed_at = CASE WHEN attempts >= max_attempts THEN clock.now ELSE NULL END,
-			updated_at = clock.now,
-			last_error_code = $7
-		FROM clock
-		WHERE assignment_id = $1
-		  AND outbox_id = $2
-		  AND state = 'leased'
-		  AND lease_owner = $3
-		  AND lease_token = $4
-		  AND attempts = $5
-		  AND lease_expires_at > clock.now
-	`,
-		lease.AssignmentID,
-		lease.OutboxID,
-		lease.Owner,
-		lease.Token,
-		lease.Attempt,
-		delayMicroseconds,
-		nullIfEmpty(errorCode),
-	)
-	if err != nil {
-		return fmt.Errorf("retry outbox row: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return ErrLeaseLost
-	}
-	return nil
+	return r.settleLeased(ctx, outboxTable, "retry", setRetry, outboxLeaseKey(lease), delayMicroseconds, nullIfEmpty(errorCode))
 }
 
 func nullIfEmpty(value string) any {

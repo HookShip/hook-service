@@ -29,7 +29,7 @@ const (
 // is decomposed; never raise one.
 var goAllowlist = map[string]int{
 	"internal/durability/postgres/store_objectstage.go": 941,
-	"internal/durability/postgres/leases.go":            666,
+	"internal/durability/postgres/leases.go":            456,
 	"internal/config/runtime.go":                        615,
 	"internal/ingest/handler.go":                        535,
 	"internal/backend/postgres/postgres.go":             501,
