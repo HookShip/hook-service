@@ -31,7 +31,7 @@ var (
 
 // Options configures the ingest handler.
 type Options struct {
-	Backend runtime.Backend
+	Backend Backend
 	Clock   runtime.Clock
 	IDs     runtime.IDSource
 	Logger  *slog.Logger
@@ -50,7 +50,7 @@ type Options struct {
 
 // Handler serves the protocol-v1 ingest endpoints.
 type Handler struct {
-	backend runtime.Backend
+	backend Backend
 	clock   runtime.Clock
 	ids     runtime.IDSource
 	logger  *slog.Logger

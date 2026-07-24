@@ -24,7 +24,7 @@ import (
 
 // Options configures the delivery worker.
 type Options struct {
-	Backend           runtime.Backend
+	Backend           Backend
 	Transport         *transport.Client
 	Sink              outboxsink.Sink
 	Clock             runtime.Clock
