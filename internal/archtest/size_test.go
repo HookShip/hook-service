@@ -28,7 +28,7 @@ const (
 // Entries are the current known hotspots. Lower or delete an entry as the file
 // is decomposed; never raise one.
 var goAllowlist = map[string]int{
-	"internal/durability/postgres/store_objectstage.go": 1074,
+	"internal/durability/postgres/store_objectstage.go": 941,
 	"internal/durability/postgres/leases.go":            666,
 	"internal/config/runtime.go":                        615,
 	"internal/ingest/handler.go":                        535,

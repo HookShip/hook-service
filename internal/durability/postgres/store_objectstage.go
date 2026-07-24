@@ -357,131 +357,44 @@ func (r *objectStageStore) ClaimObjectStageWrite(
 	}
 
 	if attemptState == "ready" {
-		err = tx.QueryRow(ctx, `
-			WITH clock AS MATERIALIZED (
-				SELECT clock_timestamp() AS now
-			)
-			UPDATE payload_stage_write_attempts
-			SET
-				state = 'leased',
-				lease_owner = $3,
-				lease_token = $4,
-				lease_expires_at = clock.now + $5::bigint * interval '1 microsecond'
-			FROM clock, payload_records AS payload
-			WHERE payload_stage_write_attempts.assignment_id = $1
-			  AND payload_stage_write_attempts.stage_write_attempt_id = $2
-			  AND payload_stage_write_attempts.state = 'ready'
-			  AND payload.assignment_id = payload_stage_write_attempts.assignment_id
-			  AND payload.payload_id = payload_stage_write_attempts.payload_id
-			  AND payload.state = 'staging'
-			  AND payload.expires_at > clock.now
-			RETURNING payload_stage_write_attempts.lease_expires_at
-		`, assignmentID, lease.StageAttemptID, owner, token, leaseMicroseconds).Scan(&lease.ExpiresAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ObjectStageWriteLease{}, false, ErrPayloadUnavailable
-		}
-		if err != nil {
-			return ObjectStageWriteLease{}, false, fmt.Errorf("claim initial object stage write: %w", err)
-		}
-	} else {
-		if _, err := tx.Exec(ctx, `
-			WITH clock AS MATERIALIZED (
-				SELECT clock_timestamp() AS now
-			)
-			UPDATE payload_stage_write_attempts
-			SET
-				state = 'orphaned',
-				lease_owner = NULL,
-				lease_token = NULL,
-				lease_expires_at = NULL,
-				orphaned_at = clock.now
-			FROM clock
-			WHERE assignment_id = $1
-			  AND stage_write_attempt_id = $2
-			  AND state = 'leased'
-			  AND lease_expires_at <= clock.now
-		`, assignmentID, lease.StageAttemptID); err != nil {
-			return ObjectStageWriteLease{}, false, fmt.Errorf("orphan stale object stage write: %w", err)
-		}
-
-		nextAttempt := lease.Attempt + 1
-		nextAttemptID := stageWriteAttemptID(assignmentID, lease.PayloadID, nextAttempt)
-		nextStagingKey, finalKey, err := ObjectAttemptKeys(assignmentID, lease.PayloadID, nextAttempt)
+		lease.ExpiresAt, err = r.claimReadyAttempt(ctx, tx, assignmentID, lease.StageAttemptID, owner, token, leaseMicroseconds)
 		if err != nil {
 			return ObjectStageWriteLease{}, false, err
 		}
-		err = tx.QueryRow(ctx, `
-			WITH clock AS MATERIALIZED (
-				SELECT clock_timestamp() AS now
-			)
-			INSERT INTO payload_stage_write_attempts (
-				stage_write_attempt_id,
-				assignment_id,
-				payload_id,
-				ledger_id,
-				attempt_number,
-				state,
-				staging_object_key,
-				final_object_key,
-				ciphertext_sha256,
-				ciphertext_size,
-				lease_owner,
-				lease_token,
-				lease_expires_at,
-				created_at
-			)
-			SELECT
-				$3,
-				payload.assignment_id,
-				payload.payload_id,
-				payload.ledger_id,
-				$4,
-				'leased',
-				$5,
-				$6,
-				payload.ciphertext_sha256,
-				payload.ciphertext_size,
-				$7,
-				$8,
-				clock.now + $9::bigint * interval '1 microsecond',
-				clock.now
-			FROM payload_records AS payload
-			CROSS JOIN clock
-			WHERE payload.assignment_id = $1
-			  AND payload.ledger_id = $2
-			  AND payload.state = 'staging'
-			  AND payload.expires_at > clock.now
-			RETURNING lease_expires_at
-		`,
-			assignmentID,
-			ledgerID,
-			nextAttemptID,
-			nextAttempt,
-			nextStagingKey,
-			finalKey,
-			owner,
-			token,
-			leaseMicroseconds,
-		).Scan(&lease.ExpiresAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ObjectStageWriteLease{}, false, ErrPayloadUnavailable
+	} else {
+		// The prior attempt's lease expired: reclaim it and lease a fresh
+		// replacement attempt with new deterministic object keys.
+		if err := r.orphanExpiredLeasedAttempt(ctx, tx, assignmentID, lease.StageAttemptID); err != nil {
+			return ObjectStageWriteLease{}, false, err
 		}
+		nextAttempt := lease.Attempt + 1
+		nextAttemptID, nextStagingKey, nextFinalKey, err := stageAttemptKeys(assignmentID, lease.PayloadID, nextAttempt)
 		if err != nil {
-			return ObjectStageWriteLease{}, false, fmt.Errorf("insert replacement object stage write: %w", err)
+			return ObjectStageWriteLease{}, false, err
 		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE payload_records
-			SET staging_object_key = $3, final_object_key = $4
-			WHERE assignment_id = $1
-			  AND ledger_id = $2
-			  AND state = 'staging'
-		`, assignmentID, ledgerID, nextStagingKey, finalKey); err != nil {
-			return ObjectStageWriteLease{}, false, fmt.Errorf("select replacement object stage identity: %w", err)
+		lease.ExpiresAt, err = r.insertLeasedAttempt(ctx, tx, leasedAttempt{
+			assignmentID: assignmentID,
+			ledgerID:     ledgerID,
+			attemptID:    nextAttemptID,
+			attempt:      nextAttempt,
+			stagingKey:   nextStagingKey,
+			finalKey:     nextFinalKey,
+			checksum:     lease.CiphertextSHA256[:],
+			size:         lease.CiphertextSize,
+			owner:        owner,
+			token:        token,
+			leaseMicros:  leaseMicroseconds,
+		})
+		if err != nil {
+			return ObjectStageWriteLease{}, false, err
+		}
+		if err := r.moveStagedIdentityKeys(ctx, tx, assignmentID, ledgerID, nextStagingKey, nextFinalKey); err != nil {
+			return ObjectStageWriteLease{}, false, err
 		}
 		lease.StageAttemptID = nextAttemptID
 		lease.Attempt = nextAttempt
 		lease.StagingObjectKey = nextStagingKey
-		lease.FinalObjectKey = finalKey
+		lease.FinalObjectKey = nextFinalKey
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -582,91 +495,45 @@ func (r *objectStageStore) SupersedeObjectStage(
 
 	// Single-winner fence: if any attempt still holds an active lease, a
 	// concurrent writer owns this payload; the caller must back off.
-	var activeWriter bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM payload_stage_write_attempts
-			WHERE assignment_id = $1
-			  AND payload_id = $2
-			  AND state = 'leased'
-			  AND lease_expires_at > clock_timestamp()
-		)
-	`, identity.AssignmentID, identity.PayloadID).Scan(&activeWriter); err != nil {
-		return ObjectStageWriteLease{}, false, fmt.Errorf("check active object stage writer: %w", err)
+	activeWriter, err := r.hasActiveWriter(ctx, tx, identity.AssignmentID, identity.PayloadID)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, err
 	}
 	if activeWriter {
 		return ObjectStageWriteLease{}, false, nil
 	}
 
-	// Fence every prior attempt so no stale writer can finalize.
-	if _, err := tx.Exec(ctx, `
-		WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
-		UPDATE payload_stage_write_attempts AS attempt
-		SET state = 'orphaned', lease_owner = NULL, lease_token = NULL,
-			lease_expires_at = NULL, orphaned_at = clock.now
-		FROM clock
-		WHERE attempt.assignment_id = $1
-		  AND attempt.payload_id = $2
-		  AND attempt.state IN ('ready', 'leased')
-	`, identity.AssignmentID, identity.PayloadID); err != nil {
-		return ObjectStageWriteLease{}, false, fmt.Errorf("fence prior object stage attempts: %w", err)
+	// Fence every prior attempt so no stale writer can finalize, then allocate
+	// and lease a fresh attempt with new deterministic object keys.
+	if err := r.fencePriorAttempts(ctx, tx, identity.AssignmentID, identity.PayloadID); err != nil {
+		return ObjectStageWriteLease{}, false, err
 	}
 
-	var maxAttempt int
-	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(attempt_number), 0)
-		FROM payload_stage_write_attempts
-		WHERE assignment_id = $1 AND payload_id = $2
-	`, identity.AssignmentID, identity.PayloadID).Scan(&maxAttempt); err != nil {
-		return ObjectStageWriteLease{}, false, fmt.Errorf("read prior object stage attempts: %w", err)
+	maxAttempt, err := r.maxAttemptNumber(ctx, tx, identity.AssignmentID, identity.PayloadID)
+	if err != nil {
+		return ObjectStageWriteLease{}, false, err
 	}
 	nextAttempt := maxAttempt + 1
-	nextAttemptID := stageWriteAttemptID(identity.AssignmentID, identity.PayloadID, nextAttempt)
-	nextStagingKey, nextFinalKey, err := ObjectAttemptKeys(identity.AssignmentID, identity.PayloadID, nextAttempt)
+	nextAttemptID, nextStagingKey, nextFinalKey, err := stageAttemptKeys(identity.AssignmentID, identity.PayloadID, nextAttempt)
 	if err != nil {
 		return ObjectStageWriteLease{}, false, err
 	}
 
-	var leaseExpiresAt time.Time
-	err = tx.QueryRow(ctx, `
-		WITH clock AS MATERIALIZED (SELECT clock_timestamp() AS now)
-		INSERT INTO payload_stage_write_attempts (
-			stage_write_attempt_id,
-			assignment_id,
-			payload_id,
-			ledger_id,
-			attempt_number,
-			state,
-			staging_object_key,
-			final_object_key,
-			ciphertext_sha256,
-			ciphertext_size,
-			lease_owner,
-			lease_token,
-			lease_expires_at,
-			created_at
-		)
-		SELECT $3, $1, $4, $2, $5, 'leased', $6, $7, $8, $9, $10, $11,
-			clock.now + $12::bigint * interval '1 microsecond', clock.now
-		FROM clock
-		RETURNING lease_expires_at
-	`,
-		identity.AssignmentID,
-		identity.LedgerID,
-		nextAttemptID,
-		identity.PayloadID,
-		nextAttempt,
-		nextStagingKey,
-		nextFinalKey,
-		identity.CiphertextSHA256[:],
-		identity.CiphertextSize,
-		owner,
-		token,
-		leaseMicroseconds,
-	).Scan(&leaseExpiresAt)
+	leaseExpiresAt, err := r.insertLeasedAttempt(ctx, tx, leasedAttempt{
+		assignmentID: identity.AssignmentID,
+		ledgerID:     identity.LedgerID,
+		attemptID:    nextAttemptID,
+		attempt:      nextAttempt,
+		stagingKey:   nextStagingKey,
+		finalKey:     nextFinalKey,
+		checksum:     identity.CiphertextSHA256[:],
+		size:         identity.CiphertextSize,
+		owner:        owner,
+		token:        token,
+		leaseMicros:  leaseMicroseconds,
+	})
 	if err != nil {
-		return ObjectStageWriteLease{}, false, fmt.Errorf("insert superseding object stage attempt: %w", err)
+		return ObjectStageWriteLease{}, false, err
 	}
 
 	// Move the payload's staged identity to the new attempt. The relaxed payload
