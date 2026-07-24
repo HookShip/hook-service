@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) ClaimJob(
+func (r *jobQueue) ClaimJob(
 	ctx context.Context,
 	assignmentID, kind, owner, token string,
 	leaseDuration time.Duration,
@@ -142,7 +142,7 @@ func (r *Repository) ClaimJob(
 	return job, true, nil
 }
 
-func (r *Repository) CompleteJob(
+func (r *jobQueue) CompleteJob(
 	ctx context.Context,
 	lease JobLease,
 ) error {
@@ -177,7 +177,7 @@ func (r *Repository) CompleteJob(
 	return nil
 }
 
-func (r *Repository) RetryJob(
+func (r *jobQueue) RetryJob(
 	ctx context.Context,
 	lease JobLease,
 	delay time.Duration,
@@ -235,7 +235,7 @@ func (r *Repository) RetryJob(
 // FailJob terminally dead-letters a leased job regardless of remaining attempts.
 // It is used for non-retryable (terminal policy) delivery outcomes and requires
 // the caller to still hold the fencing lease.
-func (r *Repository) FailJob(
+func (r *jobQueue) FailJob(
 	ctx context.Context,
 	lease JobLease,
 	errorCode string,
@@ -284,7 +284,7 @@ func (r *Repository) FailJob(
 	return nil
 }
 
-func (r *Repository) RecordAttemptAndOutbox(
+func (r *jobQueue) RecordAttemptAndOutbox(
 	ctx context.Context,
 	attempt AttemptRecord,
 	outbox OutboxRecord,
@@ -411,7 +411,7 @@ func (r *Repository) RecordAttemptAndOutbox(
 	return nil
 }
 
-func (r *Repository) ClaimOutbox(
+func (r *outboxQueue) ClaimOutbox(
 	ctx context.Context,
 	assignmentID, owner, token string,
 	leaseDuration time.Duration,
@@ -549,7 +549,7 @@ func (r *Repository) ClaimOutbox(
 	return item, true, nil
 }
 
-func (r *Repository) PublishOutbox(
+func (r *outboxQueue) PublishOutbox(
 	ctx context.Context,
 	lease OutboxLease,
 ) error {
@@ -585,7 +585,7 @@ func (r *Repository) PublishOutbox(
 	return nil
 }
 
-func (r *Repository) RetryOutbox(
+func (r *outboxQueue) RetryOutbox(
 	ctx context.Context,
 	lease OutboxLease,
 	delay time.Duration,

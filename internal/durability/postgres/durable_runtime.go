@@ -49,7 +49,7 @@ type IngestStatusRow struct {
 // It returns true when the nonce is fresh (or the previous record has expired
 // and is refreshed) and false when an unexpired nonce is replayed. The window is
 // enforced with the database clock to avoid client skew.
-func (r *Repository) ReserveNonce(
+func (r *nonceLedger) ReserveNonce(
 	ctx context.Context,
 	credentialID, nonce string,
 	signedAt, expiresAt time.Time,
@@ -111,7 +111,7 @@ func (r *Repository) ReserveNonce(
 }
 
 // PurgeExpiredNonces removes nonce rows past their retention window.
-func (r *Repository) PurgeExpiredNonces(ctx context.Context, limit int) (int64, error) {
+func (r *nonceLedger) PurgeExpiredNonces(ctx context.Context, limit int) (int64, error) {
 	if limit < 1 || limit > 100000 {
 		return 0, errors.New("nonce purge limit must be between 1 and 100000")
 	}
@@ -136,7 +136,7 @@ func (r *Repository) PurgeExpiredNonces(ctx context.Context, limit int) (int64, 
 
 // ListDeadJobs returns terminal dead dispatch jobs for an assignment, for
 // operator diagnostics.
-func (r *Repository) ListDeadJobs(
+func (r *diagnostics) ListDeadJobs(
 	ctx context.Context,
 	assignmentID string,
 	limit int,
@@ -198,7 +198,7 @@ func (r *Repository) ListDeadJobs(
 // RedriveJob returns a dead dispatch job to the ready state as an explicit
 // operator action, resetting the attempt counter. It never silently mutates a
 // live job.
-func (r *Repository) RedriveJob(
+func (r *diagnostics) RedriveJob(
 	ctx context.Context,
 	assignmentID, jobID string,
 	runAt time.Time,
@@ -229,7 +229,7 @@ func (r *Repository) RedriveJob(
 	return nil
 }
 
-func (r *Repository) LoadPayloadCiphertext(
+func (r *acceptanceStore) LoadPayloadCiphertext(
 	ctx context.Context,
 	assignmentID, payloadID string,
 ) (PayloadCiphertext, error) {
@@ -260,7 +260,7 @@ func (r *Repository) LoadPayloadCiphertext(
 // delivery. It returns ErrNotFound when no committed object payload exists for
 // the assignment, so a restarted worker on any replica can fetch the ciphertext
 // from the object store without depending on the accepting process.
-func (r *Repository) LoadObjectPayloadLocator(
+func (r *objectStageStore) LoadObjectPayloadLocator(
 	ctx context.Context,
 	assignmentID, payloadID string,
 ) (ObjectPayloadLocator, error) {
@@ -290,7 +290,7 @@ func (r *Repository) LoadObjectPayloadLocator(
 
 // LoadIngestStatus reads the payload-free status of an ingest owned by the
 // assignment. Unknown and foreign IDs both return ErrNotFound.
-func (r *Repository) LoadIngestStatus(
+func (r *acceptanceStore) LoadIngestStatus(
 	ctx context.Context,
 	assignmentID, ingestID string,
 ) (IngestStatusRow, error) {
@@ -337,7 +337,7 @@ func (r *Repository) LoadIngestStatus(
 // ListReadyDispatch returns dispatch jobs that are currently claimable, for the
 // relay to publish advisory dispatch signals. It never mutates state, so
 // publishing signals derived from it is not a database-plus-queue dual write.
-func (r *Repository) ListReadyDispatch(ctx context.Context, limit int) ([]Job, error) {
+func (r *jobQueue) ListReadyDispatch(ctx context.Context, limit int) ([]Job, error) {
 	if limit < 1 || limit > 10000 {
 		return nil, errors.New("ready dispatch limit must be between 1 and 10000")
 	}

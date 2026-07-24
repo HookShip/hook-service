@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (r *Repository) ListPendingReservations(
+func (r *retentionManager) ListPendingReservations(
 	ctx context.Context,
 	assignmentID string,
 	olderThan time.Time,
@@ -63,7 +63,7 @@ func (r *Repository) ListPendingReservations(
 	return result, nil
 }
 
-func (r *Repository) AdvanceTombstones(
+func (r *retentionManager) AdvanceTombstones(
 	ctx context.Context,
 	assignmentID string,
 	limit int,
@@ -101,7 +101,7 @@ func (r *Repository) AdvanceTombstones(
 // state (published or dead) and whose completion is older than the retention
 // horizon. The outbox is a leaf table, so bounded deletion is FK-safe. It caps
 // unbounded growth of the payload-free metadata outbox.
-func (r *Repository) PurgeTerminalOutbox(
+func (r *retentionManager) PurgeTerminalOutbox(
 	ctx context.Context,
 	assignmentID string,
 	olderThan time.Time,
@@ -132,7 +132,7 @@ func (r *Repository) PurgeTerminalOutbox(
 	return tag.RowsAffected(), nil
 }
 
-func (r *Repository) MarkExpiredObjectStagesOrphaned(
+func (r *retentionManager) MarkExpiredObjectStagesOrphaned(
 	ctx context.Context,
 	assignmentID string,
 	limit int,
@@ -201,7 +201,7 @@ func (r *Repository) MarkExpiredObjectStagesOrphaned(
 
 // ClaimPayloadDeletion claims or reclaims one eligible payload using the
 // PostgreSQL clock and returns the immutable metadata needed for deletion.
-func (r *Repository) ClaimPayloadDeletion(
+func (r *retentionManager) ClaimPayloadDeletion(
 	ctx context.Context,
 	assignmentID, owner, token string,
 	leaseDuration time.Duration,
@@ -333,7 +333,7 @@ func (r *Repository) ClaimPayloadDeletion(
 
 // CompletePayloadDeletion records a successful ciphertext deletion only while
 // the caller still owns the unexpired database lease.
-func (r *Repository) CompletePayloadDeletion(
+func (r *retentionManager) CompletePayloadDeletion(
 	ctx context.Context,
 	lease PayloadDeletionLease,
 ) error {
