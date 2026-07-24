@@ -40,6 +40,13 @@ separately:
 make smoke-deploy # real restore drill + real Compose network derivation
 ```
 
+Two architecture-conformance tests run in the ordinary lane
+(`internal/archtest`): an import-graph guard keeps `internal/runtime`,
+`internal/idempotency`, and `internal/capabilities` free of concrete
+backend/config imports, and a source-size ratchet caps non-generated Go and
+shell files (current hotspots are grandfathered with a ceiling that may only be
+lowered, never raised, as files are split).
+
 Database integration tests are intentionally separate:
 
 ```sh
