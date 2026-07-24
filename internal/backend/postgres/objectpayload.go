@@ -49,7 +49,7 @@ func (b *Backend) acceptObject(ctx context.Context, request runtime.AcceptanceRe
 			ExpiresAt:        payloadExpiry,
 			StagedAt:         request.AcceptedAt,
 		})
-		if mapped := mapObjectStageError(stageErr); mapped != nil {
+		if mapped := translateAcceptanceError(stageErr); mapped != nil {
 			return mapped
 		}
 		stage, err = b.repo.GetObjectPayloadStage(ctx, assignmentID, ledgerID)
@@ -109,10 +109,7 @@ func (b *Backend) acceptObject(ctx context.Context, request runtime.AcceptanceRe
 		DispatchMaxAttempts: request.DispatchMaxAttempts,
 	}
 	if err := b.repo.AcceptFinalizedObject(ctx, acceptance); err != nil {
-		if errors.Is(err, durable.ErrNotPending) || errors.Is(err, durable.ErrNotFound) {
-			return runtime.ErrUnavailable
-		}
-		return err
+		return translateAcceptanceError(err)
 	}
 	return nil
 }
@@ -125,10 +122,7 @@ func (b *Backend) claimAndWrite(ctx context.Context, assignmentID, ledgerID stri
 	token := b.ids.NewID("objt")
 	lease, ok, err := b.repo.ClaimObjectStageWrite(ctx, assignmentID, ledgerID, owner, token, b.stageLease())
 	if err != nil {
-		if errors.Is(err, durable.ErrPayloadUnavailable) || errors.Is(err, durable.ErrNotFound) {
-			return runtime.ErrUnavailable
-		}
-		return err
+		return translateAcceptanceError(err)
 	}
 	if !ok {
 		// Another writer holds an active lease; the acceptance is retryable.
@@ -159,13 +153,13 @@ func (b *Backend) supersedeAndWrite(ctx context.Context, request runtime.Accepta
 	}
 	lease, superseded, err := b.repo.SupersedeObjectStage(ctx, identity, owner, token, b.stageLease())
 	if err != nil {
-		if errors.Is(err, durable.ErrPayloadUnavailable) || errors.Is(err, durable.ErrNotFound) {
-			return runtime.ErrUnavailable
-		}
+		// A payload-key mismatch on supersession is genuine corruption, not
+		// backpressure, so it is surfaced as a hard error rather than retryable
+		// unavailability. Every other barrier sentinel is retryable.
 		if errors.Is(err, durable.ErrPayloadConflict) {
 			return fmt.Errorf("object payload key mismatch on supersession: %w", err)
 		}
-		return err
+		return translateAcceptanceError(err)
 	}
 	if !superseded {
 		return runtime.ErrUnavailable
@@ -198,10 +192,7 @@ func (b *Backend) writeAndFinalize(ctx context.Context, lease durable.ObjectStag
 		Mode:                   mode,
 	}
 	if err := b.repo.FinalizeObjectPayload(ctx, lease, promotion); err != nil {
-		if errors.Is(err, durable.ErrLeaseLost) {
-			return runtime.ErrUnavailable
-		}
-		return err
+		return translateAcceptanceError(err)
 	}
 	return nil
 }
@@ -216,18 +207,12 @@ func (b *Backend) loadObjectDelivery(ctx context.Context, job runtime.Job) (runt
 		return runtime.DeliveryContext{}, runtime.ErrNotFound
 	}
 	locator, err := b.repo.LoadObjectPayloadLocator(ctx, job.AssignmentID, job.PayloadID)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.DeliveryContext{}, runtime.ErrNotFound
-	}
 	if err != nil {
-		return runtime.DeliveryContext{}, err
+		return runtime.DeliveryContext{}, translateError(err)
 	}
 	status, err := b.repo.LoadIngestStatus(ctx, job.AssignmentID, job.IngestID)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.DeliveryContext{}, runtime.ErrNotFound
-	}
 	if err != nil {
-		return runtime.DeliveryContext{}, err
+		return runtime.DeliveryContext{}, translateError(err)
 	}
 	ciphertext, err := b.store.Get(ctx, locator.FinalObjectKey, runtime.Hash(locator.CiphertextSHA256))
 	if err != nil {
@@ -297,22 +282,6 @@ func providerVersion(version string, checksum runtime.Hash) string {
 		return version
 	}
 	return "sha256-" + checksum.String()
-}
-
-// mapObjectStageError maps staging conflicts to retryable unavailability so the
-// acceptance path never returns a false success.
-func mapObjectStageError(err error) error {
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, durable.ErrNotPending),
-		errors.Is(err, durable.ErrPayloadConflict),
-		errors.Is(err, durable.ErrPayloadUnavailable),
-		errors.Is(err, durable.ErrNotFound):
-		return runtime.ErrUnavailable
-	default:
-		return err
-	}
 }
 
 // mapObjectStoreError classifies object-store failures. A hard immutability

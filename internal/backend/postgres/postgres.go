@@ -266,20 +266,14 @@ func (b *Backend) Accept(ctx context.Context, request runtime.AcceptanceRequest)
 		DispatchRunAt:       request.DispatchRunAt,
 		DispatchMaxAttempts: request.DispatchMaxAttempts,
 	})
-	if errors.Is(err, durable.ErrNotPending) {
-		return runtime.ErrUnavailable
-	}
-	return err
+	return translateAcceptanceError(err)
 }
 
 // Status returns the payload-free status of an ingest.
 func (b *Backend) Status(ctx context.Context, assignmentID, ingestID string) (runtime.IngestStatus, error) {
 	row, err := b.repo.LoadIngestStatus(ctx, assignmentID, ingestID)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.IngestStatus{}, runtime.ErrNotFound
-	}
 	if err != nil {
-		return runtime.IngestStatus{}, err
+		return runtime.IngestStatus{}, translateError(err)
 	}
 	return runtime.IngestStatus{
 		IngestID:     ingestID,
@@ -334,18 +328,12 @@ func (b *Backend) LoadDelivery(ctx context.Context, job runtime.Job) (runtime.De
 		return runtime.DeliveryContext{}, runtime.ErrNotFound
 	}
 	payload, err := b.repo.LoadPayloadCiphertext(ctx, job.AssignmentID, job.PayloadID)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.DeliveryContext{}, runtime.ErrNotFound
-	}
 	if err != nil {
-		return runtime.DeliveryContext{}, err
+		return runtime.DeliveryContext{}, translateError(err)
 	}
 	status, err := b.repo.LoadIngestStatus(ctx, job.AssignmentID, job.IngestID)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.DeliveryContext{}, runtime.ErrNotFound
-	}
 	if err != nil {
-		return runtime.DeliveryContext{}, err
+		return runtime.DeliveryContext{}, translateError(err)
 	}
 	plaintext, err := b.sealer.Open(runtime.SealedPayload{
 		Ciphertext:       payload.Ciphertext,
@@ -371,19 +359,17 @@ func (b *Backend) LoadDelivery(ctx context.Context, job runtime.Job) (runtime.De
 
 // CompleteJob settles a successful job.
 func (b *Backend) CompleteJob(ctx context.Context, lease runtime.JobLease) error {
-	err := b.repo.CompleteJob(ctx, durable.JobLease(lease))
-	return mapLeaseError(err)
+	return translateError(b.repo.CompleteJob(ctx, durable.JobLease(lease)))
 }
 
 // RetryJob reschedules or dead-letters a job.
 func (b *Backend) RetryJob(ctx context.Context, lease runtime.JobLease, delay time.Duration, errorCode string) error {
-	err := b.repo.RetryJob(ctx, durable.JobLease(lease), delay, errorCode)
-	return mapLeaseError(err)
+	return translateError(b.repo.RetryJob(ctx, durable.JobLease(lease), delay, errorCode))
 }
 
 // FailJob terminally dead-letters a job under lease.
 func (b *Backend) FailJob(ctx context.Context, lease runtime.JobLease, errorCode string) error {
-	return mapLeaseError(b.repo.FailJob(ctx, durable.JobLease(lease), errorCode))
+	return translateError(b.repo.FailJob(ctx, durable.JobLease(lease), errorCode))
 }
 
 // RecordAttempt writes the immutable attempt and its metadata outbox row.
@@ -402,12 +388,12 @@ func (b *Backend) ClaimOutbox(ctx context.Context, assignmentID, owner, token st
 
 // PublishOutbox marks a claimed outbox row published.
 func (b *Backend) PublishOutbox(ctx context.Context, lease runtime.OutboxLease) error {
-	return mapLeaseError(b.repo.PublishOutbox(ctx, durable.OutboxLease(lease)))
+	return translateError(b.repo.PublishOutbox(ctx, durable.OutboxLease(lease)))
 }
 
 // RetryOutbox reschedules a claimed outbox row.
 func (b *Backend) RetryOutbox(ctx context.Context, lease runtime.OutboxLease, delay time.Duration, errorCode string) error {
-	return mapLeaseError(b.repo.RetryOutbox(ctx, durable.OutboxLease(lease), delay, errorCode))
+	return translateError(b.repo.RetryOutbox(ctx, durable.OutboxLease(lease), delay, errorCode))
 }
 
 // ListDeadJobs returns dead dispatch jobs for an assignment.
@@ -425,11 +411,7 @@ func (b *Backend) ListDeadJobs(ctx context.Context, assignmentID string, limit i
 
 // RedriveJob returns a dead job to ready.
 func (b *Backend) RedriveJob(ctx context.Context, assignmentID, jobID string, runAt time.Time) error {
-	err := b.repo.RedriveJob(ctx, assignmentID, jobID, runAt)
-	if errors.Is(err, durable.ErrNotFound) {
-		return runtime.ErrNotFound
-	}
-	return err
+	return translateError(b.repo.RedriveJob(ctx, assignmentID, jobID, runAt))
 }
 
 // ReadyDispatch lists claimable dispatch jobs for the dispatch relay to publish
@@ -512,13 +494,6 @@ func (b *Backend) ReclaimExpiredPayloads(ctx context.Context, assignmentID strin
 		reclaimed++
 	}
 	return reclaimed, nil
-}
-
-func mapLeaseError(err error) error {
-	if errors.Is(err, durable.ErrLeaseLost) {
-		return runtime.ErrLeaseLost
-	}
-	return err
 }
 
 // Compile-time assertion that the PostgreSQL backend satisfies the full runtime
