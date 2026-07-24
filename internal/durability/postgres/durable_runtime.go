@@ -145,22 +145,10 @@ func (r *diagnostics) ListDeadJobs(
 		return nil, errors.New("dead job limit must be between 1 and 10000")
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT
-			job_id,
-			assignment_id,
-			kind,
-			COALESCE(ingest_id, ''),
-			COALESCE(payload_id, ''),
-			COALESCE(delivery_id, ''),
-			COALESCE(endpoint_snapshot_id, ''),
-			state::text,
-			run_at,
-			attempts,
-			max_attempts,
-			COALESCE(last_error_code, '')
-		FROM durable_jobs
-		WHERE assignment_id = $1 AND state = 'dead'
-		ORDER BY completed_at DESC NULLS LAST, job_id
+		SELECT`+jobColumns+`
+		FROM durable_jobs AS job
+		WHERE job.assignment_id = $1 AND job.state = 'dead'
+		ORDER BY job.completed_at DESC NULLS LAST, job.job_id
 		LIMIT $2::integer
 	`, assignmentID, limit)
 	if err != nil {
@@ -170,21 +158,8 @@ func (r *diagnostics) ListDeadJobs(
 
 	var jobs []Job
 	for rows.Next() {
-		var job Job
-		if err := rows.Scan(
-			&job.JobID,
-			&job.AssignmentID,
-			&job.Kind,
-			&job.IngestID,
-			&job.PayloadID,
-			&job.DeliveryID,
-			&job.EndpointSnapshotID,
-			&job.State,
-			&job.RunAt,
-			&job.Attempts,
-			&job.MaxAttempts,
-			&job.LastErrorCode,
-		); err != nil {
+		job, err := scanJob(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan dead job: %w", err)
 		}
 		jobs = append(jobs, job)
@@ -345,19 +320,7 @@ func (r *jobQueue) ListReadyDispatch(ctx context.Context, limit int) ([]Job, err
 		WITH clock AS MATERIALIZED (
 			SELECT clock_timestamp() AS now
 		)
-		SELECT
-			job.job_id,
-			job.assignment_id,
-			job.kind,
-			COALESCE(job.ingest_id, ''),
-			COALESCE(job.payload_id, ''),
-			COALESCE(job.delivery_id, ''),
-			COALESCE(job.endpoint_snapshot_id, ''),
-			job.state::text,
-			job.run_at,
-			job.attempts,
-			job.max_attempts,
-			COALESCE(job.last_error_code, '')
+		SELECT`+jobColumns+`
 		FROM durable_jobs AS job
 		CROSS JOIN clock
 		WHERE job.kind = 'dispatch'
@@ -377,21 +340,8 @@ func (r *jobQueue) ListReadyDispatch(ctx context.Context, limit int) ([]Job, err
 
 	var jobs []Job
 	for rows.Next() {
-		var job Job
-		if err := rows.Scan(
-			&job.JobID,
-			&job.AssignmentID,
-			&job.Kind,
-			&job.IngestID,
-			&job.PayloadID,
-			&job.DeliveryID,
-			&job.EndpointSnapshotID,
-			&job.State,
-			&job.RunAt,
-			&job.Attempts,
-			&job.MaxAttempts,
-			&job.LastErrorCode,
-		); err != nil {
+		job, err := scanJob(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan ready dispatch: %w", err)
 		}
 		jobs = append(jobs, job)
