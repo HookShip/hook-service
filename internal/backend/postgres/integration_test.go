@@ -25,7 +25,7 @@ func TestPostgresBackendContract(t *testing.T) {
 		pool, cleanup := newIsolatedPool(t)
 		sealer := newTestSealer(t)
 		base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
-		backend, err := backendpg.New(context.Background(), pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false)
+		backend, err := backendpg.New(context.Background(), backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +47,7 @@ func TestPostgresAcceptanceIsDurableAcrossReopen(t *testing.T) {
 	sealer := newTestSealer(t)
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
 
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false)
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestPostgresAcceptanceIsDurableAcrossReopen(t *testing.T) {
 	// A brand-new backend over the same database (simulating a restart) still
 	// sees the accepted ingest and can deliver from the committed payload.
 	backend.Close()
-	reopened, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false)
+	reopened, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}})
 	if err != nil {
 		t.Fatal(err)
 	}

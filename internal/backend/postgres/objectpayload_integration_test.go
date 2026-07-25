@@ -34,7 +34,7 @@ func TestObjectStorePayloadBackendContract(t *testing.T) {
 		sealer := newTestSealer(t)
 		store := objectstore.NewMemoryStore()
 		base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
-		backend, err := backendpg.New(context.Background(), pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+		backend, err := backendpg.New(context.Background(), backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 			backendpg.WithPayloadStore(store))
 		if err != nil {
 			t.Fatal(err)
@@ -61,7 +61,7 @@ func TestObjectStoreAcceptanceIsRestartSafe(t *testing.T) {
 	store := objectstore.NewMemoryStore()
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
 
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store))
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestObjectStoreAcceptanceIsRestartSafe(t *testing.T) {
 
 	// A brand-new backend over the same database and the same object store still
 	// serves the delivery from committed durable state.
-	reopened, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+	reopened, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store))
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestObjectStorePutFailureYieldsNoFalseAcceptance(t *testing.T) {
 	store.SetPutFault(func(string) error { return errors.New("object store unavailable") })
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
 
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store))
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestObjectStorePayloadReclamationDeletesObjects(t *testing.T) {
 	sealer := newTestSealer(t)
 	store := objectstore.NewMemoryStore()
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store))
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +300,7 @@ func TestObjectStoreEndToEndAgainstMinIO(t *testing.T) {
 	base.ID = base.ID + "_" + suffix
 	base.CredentialID = base.CredentialID + "_" + suffix
 
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, sealer, runtime.SystemClock{}, false,
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: sealer, Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store))
 	if err != nil {
 		t.Fatal(err)

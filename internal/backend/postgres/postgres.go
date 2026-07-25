@@ -79,46 +79,62 @@ func WithStageWriteLease(ttl time.Duration) Option {
 	}
 }
 
-// New builds a PostgreSQL backend over an existing pool, registering each
-// assignment's immutable endpoint snapshot and rewriting the assignment source
-// to reference it.
-func New(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	assignments []runtime.Assignment,
-	sealer runtime.PayloadSealer,
-	clock runtime.Clock,
-	ownsPool bool,
-	opts ...Option,
-) (*Backend, error) {
-	if pool == nil {
+// WithOwnedPool declares that the backend owns the connection pool and must
+// close it in Close(). Without it the caller retains ownership of the pool. This
+// replaces a positional boolean flag with an explicit, self-documenting option.
+func WithOwnedPool() Option {
+	return func(b *Backend) {
+		b.ownsPool = true
+	}
+}
+
+// Params carries the required dependencies for a PostgreSQL backend. Optional
+// behavior (payload store, ID source, stage-write lease, pool ownership) is set
+// through Options, so there is no positional boolean flag or long argument list.
+type Params struct {
+	// Pool is the PostgreSQL connection pool. Required.
+	Pool *pgxpool.Pool
+	// Assignments are the immutable authorization/delivery scopes to register.
+	Assignments []runtime.Assignment
+	// Sealer encrypts payloads before they cross the acceptance barrier. Required.
+	Sealer runtime.PayloadSealer
+	// Clock is the time source; it defaults to runtime.SystemClock when nil.
+	Clock runtime.Clock
+}
+
+// New builds a PostgreSQL backend from params, registering each assignment's
+// immutable endpoint snapshot and rewriting the assignment source to reference
+// it. By default the backend borrows the pool; pass WithOwnedPool to transfer
+// ownership so Close closes it.
+func New(ctx context.Context, params Params, opts ...Option) (*Backend, error) {
+	if params.Pool == nil {
 		return nil, errors.New("postgres pool is required")
 	}
-	if sealer == nil {
+	if params.Sealer == nil {
 		return nil, errors.New("payload sealer is required")
 	}
+	clock := params.Clock
 	if clock == nil {
 		clock = runtime.SystemClock{}
 	}
-	repo, err := durable.New(pool)
+	repo, err := durable.New(params.Pool)
 	if err != nil {
 		return nil, err
 	}
 	backend := &Backend{
-		pool:      pool,
+		pool:      params.Pool,
 		repo:      repo,
-		sealer:    sealer,
+		sealer:    params.Sealer,
 		endpoints: make(map[string]runtime.EndpointConfig),
 		clock:     clock,
 		ids:       runtime.NewULIDSource(clock),
-		ownsPool:  ownsPool,
 	}
 	for _, opt := range opts {
 		opt(backend)
 	}
 
-	resolved := make([]runtime.Assignment, 0, len(assignments))
-	for _, assignment := range assignments {
+	resolved := make([]runtime.Assignment, 0, len(params.Assignments))
+	for _, assignment := range params.Assignments {
 		snapshotID, err := backend.registerSnapshot(ctx, assignment)
 		if err != nil {
 			return nil, err
@@ -426,74 +442,6 @@ func (b *Backend) ReadyDispatch(ctx context.Context, limit int) ([]runtime.Job, 
 		out = append(out, toRuntimeJob(job))
 	}
 	return out, nil
-}
-
-// PayloadBackendName reports which payload store is active for status output:
-// "object-store" when the immutable object overlay is selected, else "postgres".
-func (b *Backend) PayloadBackendName() string {
-	if b.store != nil {
-		return "object-store"
-	}
-	return "postgres"
-}
-
-// PurgeExpiredNonces deletes expired replay-ledger nonces up to limit rows,
-// returning the number removed. It is safe to call repeatedly from a retention
-// worker.
-func (b *Backend) PurgeExpiredNonces(ctx context.Context, limit int) (int64, error) {
-	return b.repo.PurgeExpiredNonces(ctx, limit)
-}
-
-// AdvanceTombstones transitions committed idempotency ledgers whose retention
-// window elapsed into the tombstone state, freeing their payloads for deletion.
-func (b *Backend) AdvanceTombstones(ctx context.Context, assignmentID string, limit int) (int64, error) {
-	return b.repo.AdvanceTombstones(ctx, assignmentID, limit)
-}
-
-// MarkExpiredObjectStagesOrphaned orphans object-store payload stages that
-// expired before acceptance so their ciphertext objects can be reclaimed.
-func (b *Backend) MarkExpiredObjectStagesOrphaned(ctx context.Context, assignmentID string, limit int) (int64, error) {
-	return b.repo.MarkExpiredObjectStagesOrphaned(ctx, assignmentID, limit)
-}
-
-// PurgeTerminalOutbox deletes published or dead metadata outbox rows older than
-// olderThan, bounding growth of the payload-free metadata outbox.
-func (b *Backend) PurgeTerminalOutbox(ctx context.Context, assignmentID string, olderThan time.Time, limit int) (int64, error) {
-	return b.repo.PurgeTerminalOutbox(ctx, assignmentID, olderThan, limit)
-}
-
-// ReclaimExpiredPayloads claims and deletes eligible expired payloads for an
-// assignment, removing object-store ciphertext (or nulling PostgreSQL ciphertext
-// bytes) under a fencing lease. It returns the number reclaimed in this pass so
-// the retention worker can drain in bounded batches.
-func (b *Backend) ReclaimExpiredPayloads(ctx context.Context, assignmentID string, limit int) (int, error) {
-	owner := b.ids.NewID("pdel")
-	reclaimed := 0
-	for i := 0; i < limit; i++ {
-		token := b.ids.NewID("pdtk")
-		lease, ok, err := b.repo.ClaimPayloadDeletion(ctx, assignmentID, owner, token, objectStageWriteLease)
-		if err != nil {
-			return reclaimed, err
-		}
-		if !ok {
-			break
-		}
-		if b.store != nil {
-			if err := b.deleteObjectPayloadObjects(ctx, lease); err != nil {
-				// Leave the payload leased; the next pass reclaims it once the
-				// lease expires. Never mark it deleted without removing the bytes.
-				return reclaimed, err
-			}
-		}
-		if err := b.repo.CompletePayloadDeletion(ctx, lease); err != nil {
-			if errors.Is(err, durable.ErrLeaseLost) {
-				continue
-			}
-			return reclaimed, err
-		}
-		reclaimed++
-	}
-	return reclaimed, nil
 }
 
 // Compile-time assertion that the PostgreSQL backend satisfies the full runtime

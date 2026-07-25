@@ -45,7 +45,7 @@ func newObjectRetryHarness(t *testing.T) (*objectRetryHarness, func()) {
 		t.Fatal(err)
 	}
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
-	backend, err := backendpg.New(context.Background(), pool, []runtime.Assignment{base}, newTestSealer(t), runtime.SystemClock{}, false,
+	backend, err := backendpg.New(context.Background(), backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: newTestSealer(t), Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store),
 		backendpg.WithStageWriteLease(retryStageLease))
 	if err != nil {
@@ -338,7 +338,7 @@ func TestObjectRetrySupersessionCleanupRemovesObjects(t *testing.T) {
 	ctx := context.Background()
 	store := objectstore.NewMemoryStore()
 	base := assignmentconfig.DefaultEvaluationAssignment("https://sink.example/hooks")
-	backend, err := backendpg.New(ctx, pool, []runtime.Assignment{base}, newTestSealer(t), runtime.SystemClock{}, false,
+	backend, err := backendpg.New(ctx, backendpg.Params{Pool: pool, Assignments: []runtime.Assignment{base}, Sealer: newTestSealer(t), Clock: runtime.SystemClock{}},
 		backendpg.WithPayloadStore(store), backendpg.WithStageWriteLease(200*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)

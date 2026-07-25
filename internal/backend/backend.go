@@ -92,10 +92,19 @@ func buildPostgres(ctx context.Context, deps Deps) (runtime.Backend, error) {
 		}
 		return nil, err
 	}
-	backend, err := backendpg.New(ctx, pool, deps.Assignments, sealer, deps.Clock, ownsPool,
+	options := []backendpg.Option{
 		backendpg.WithPayloadStore(store),
 		backendpg.WithIDSource(deps.IDs),
-	)
+	}
+	if ownsPool {
+		options = append(options, backendpg.WithOwnedPool())
+	}
+	backend, err := backendpg.New(ctx, backendpg.Params{
+		Pool:        pool,
+		Assignments: deps.Assignments,
+		Sealer:      sealer,
+		Clock:       deps.Clock,
+	}, options...)
 	if err != nil {
 		if ownsPool {
 			pool.Close()

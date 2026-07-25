@@ -32,7 +32,6 @@ var goAllowlist = map[string]int{
 	"internal/durability/postgres/leases.go":            456,
 	"internal/config/runtime.go":                        615,
 	"internal/ingest/handler.go":                        535,
-	"internal/backend/postgres/postgres.go":             501,
 	"internal/release/release.go":                       456,
 }
 
