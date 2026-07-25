@@ -187,7 +187,7 @@ func buildPayloadStore(runtimeCfg config.RuntimeConfig, clock runtime.Clock) (ru
 			SecretAccessKey: settings.SecretAccessKey,
 			SessionToken:    settings.SessionToken,
 		},
-		Timeout: runtimeCfg.DeliveryTimeout,
+		Timeout: runtimeCfg.Worker.DeliveryTimeout,
 		Clock:   clock,
 	})
 }

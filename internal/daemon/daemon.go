@@ -131,9 +131,9 @@ func buildServer(
 		Clock:                  clock,
 		IDs:                    ids,
 		Logger:                 logger,
-		RequireSecureTransport: !cfg.Runtime.EvaluationMode && !cfg.Runtime.ProxyMode,
+		RequireSecureTransport: !cfg.Runtime.EvaluationMode && !cfg.Runtime.Transport.ProxyMode,
 		EvaluationMode:         cfg.Runtime.EvaluationMode,
-		TrustProxy:             cfg.Runtime.ProxyMode,
+		TrustProxy:             cfg.Runtime.Transport.ProxyMode,
 	})
 	if err != nil {
 		return nil, err
@@ -161,19 +161,19 @@ func buildWorker(
 		return nil, nil, err
 	}
 	client := transport.NewClient(transport.Options{
-		TotalTimeout:   cfg.Runtime.DeliveryTimeout,
+		TotalTimeout:   cfg.Runtime.Worker.DeliveryTimeout,
 		AllowLoopback:  cfg.Runtime.AllowLoopbackDelivery(),
 		AllowPrivate:   cfg.Runtime.AllowPrivateDelivery(),
 		AllowPlaintext: cfg.Runtime.AllowPlaintextDelivery(),
 		UserAgent:      "hookship-delivery/" + info.Version,
 	})
 	limiter := ratelimit.New(ratelimit.Config{
-		AssignmentConcurrency: cfg.Runtime.AssignmentConcurrency,
-		EndpointConcurrency:   cfg.Runtime.EndpointConcurrency,
-		AssignmentRatePerSec:  cfg.Runtime.AssignmentRatePerSec,
-		AssignmentBurst:       cfg.Runtime.AssignmentRateBurst,
-		EndpointRatePerSec:    cfg.Runtime.EndpointRatePerSec,
-		EndpointBurst:         cfg.Runtime.EndpointRateBurst,
+		AssignmentConcurrency: cfg.Runtime.RateLimit.AssignmentConcurrency,
+		EndpointConcurrency:   cfg.Runtime.RateLimit.EndpointConcurrency,
+		AssignmentRatePerSec:  cfg.Runtime.RateLimit.AssignmentRatePerSec,
+		AssignmentBurst:       cfg.Runtime.RateLimit.AssignmentRateBurst,
+		EndpointRatePerSec:    cfg.Runtime.RateLimit.EndpointRatePerSec,
+		EndpointBurst:         cfg.Runtime.RateLimit.EndpointRateBurst,
 	}, clock)
 	deliveryWorker, err := worker.New(worker.Options{
 		Backend:         built,
@@ -184,9 +184,9 @@ func buildWorker(
 		Logger:          logger,
 		Metrics:         registry,
 		Limiter:         limiter,
-		Concurrency:     cfg.Runtime.WorkerConcurrency,
-		LeaseDuration:   cfg.Runtime.WorkerLease,
-		DeliveryTimeout: cfg.Runtime.DeliveryTimeout,
+		Concurrency:     cfg.Runtime.Worker.Concurrency,
+		LeaseDuration:   cfg.Runtime.Worker.Lease,
+		DeliveryTimeout: cfg.Runtime.Worker.DeliveryTimeout,
 		Wake:            wake,
 	})
 	if err != nil {
@@ -214,9 +214,9 @@ func buildMaintenance(
 		Clock:           clock,
 		Logger:          logger,
 		Metrics:         registry,
-		Interval:        runtimeCfg.RetentionInterval,
-		BatchLimit:      runtimeCfg.RetentionBatch,
-		OutboxRetention: runtimeCfg.OutboxRetention,
+		Interval:        runtimeCfg.Retention.Interval,
+		BatchLimit:      runtimeCfg.Retention.Batch,
+		OutboxRetention: runtimeCfg.Retention.OutboxRetention,
 	})
 	if err != nil {
 		logger.Warn("retention worker not started", slog.String("error", err.Error()))
@@ -259,14 +259,14 @@ func operatorStatus(
 }
 
 func buildSink(runtimeCfg config.RuntimeConfig, logger *slog.Logger) (outboxsink.Sink, error) {
-	if runtimeCfg.MetadataSinkURL != "" {
+	if runtimeCfg.Sink.MetadataSinkURL != "" {
 		return outboxsink.NewPlatformSink(outboxsink.PlatformOptions{
-			URL:     runtimeCfg.MetadataSinkURL,
-			Token:   runtimeCfg.MetadataSinkToken,
-			Timeout: runtimeCfg.DeliveryTimeout,
+			URL:     runtimeCfg.Sink.MetadataSinkURL,
+			Token:   runtimeCfg.Sink.MetadataSinkToken,
+			Timeout: runtimeCfg.Worker.DeliveryTimeout,
 		})
 	}
-	switch runtimeCfg.OutboxSink {
+	switch runtimeCfg.Sink.OutboxSink {
 	case "", "none":
 		if runtimeCfg.EvaluationMode {
 			return outboxsink.NewLocalLogSink(logger), nil
@@ -275,7 +275,7 @@ func buildSink(runtimeCfg config.RuntimeConfig, logger *slog.Logger) (outboxsink
 	case "log":
 		return outboxsink.NewLocalLogSink(logger), nil
 	default:
-		return outboxsink.NewLocalFileSink(runtimeCfg.OutboxSink)
+		return outboxsink.NewLocalFileSink(runtimeCfg.Sink.OutboxSink)
 	}
 }
 

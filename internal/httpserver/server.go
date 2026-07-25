@@ -76,7 +76,7 @@ func NewWithOptions(cfg config.Config, logger *slog.Logger, info buildinfo.Info,
 	// a misconfiguration fails fast at construction rather than serving
 	// plaintext. Configuration validation already rejects a partial pair.
 	if cfg.Runtime.HasTLS() {
-		certificate, err := tls.LoadX509KeyPair(cfg.Runtime.TLSCertFile, cfg.Runtime.TLSKeyFile)
+		certificate, err := tls.LoadX509KeyPair(cfg.Runtime.Transport.TLSCertFile, cfg.Runtime.Transport.TLSKeyFile)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS certificate/key: %w", err)
 		}

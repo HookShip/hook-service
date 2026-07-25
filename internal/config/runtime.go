@@ -1,13 +1,8 @@
 package config
 
 import (
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
-	"net"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -91,34 +86,28 @@ const (
 )
 
 // RuntimeConfig captures the selected native runtime profile and its bounded
-// operational settings. It is empty (Backend == "") until an operator selects a
-// backend, preserving the health-only process for existing deployments.
+// operational settings, grouped into cohesive sections. It is empty
+// (Backend == "") until an operator selects a backend, preserving the
+// health-only process for existing deployments.
 type RuntimeConfig struct {
-	Backend           string
-	EvaluationMode    bool
-	DatabaseURL       string
-	PayloadBackend    string
-	RedisURL          string
-	KafkaBrokers      []string
-	ConfigFile        string
-	WorkerConcurrency int
-	WorkerLease       time.Duration
-	DeliveryTimeout   time.Duration
-	MaxAttempts       int
-	OutboxSink        string
-	SinkURL           string
-	MetadataSinkURL   string
-	MetadataSinkToken string
-	ProxyMode         bool
-	TLSCertFile       string
-	TLSKeyFile        string
+	Backend        string
+	EvaluationMode bool
+	DatabaseURL    string
+	PayloadBackend string
+	RedisURL       string
+	KafkaBrokers   []string
+	ConfigFile     string
 
-	// Delivery transport SSRF allowances. All default false (SSRF-safe). They
-	// are explicit opt-ins for delivering to trusted local/VM sinks and reduce
-	// SSRF protection when enabled.
-	DeliveryAllowLoopback  bool
-	DeliveryAllowPrivate   bool
-	DeliveryAllowPlaintext bool
+	// Worker holds the delivery worker's concurrency and timing bounds.
+	Worker WorkerSettings
+	// RateLimit holds per-assignment/per-endpoint concurrency and rate limits.
+	RateLimit RateLimitSettings
+	// Retention holds the retention/cleanup worker bounds.
+	Retention RetentionSettings
+	// Sink holds the metadata outbox sink selection and destinations.
+	Sink SinkSettings
+	// Transport holds listener/TLS and delivery SSRF-allowance settings.
+	Transport TransportSettings
 
 	// ObjectStore holds the S3-compatible payload store settings. It is used and
 	// validated only when PayloadBackend == "object-store".
@@ -128,21 +117,53 @@ type RuntimeConfig struct {
 	KeyProvider string
 	KMS         KMSSettings
 
-	// Delivery concurrency and rate limits with bounded backpressure. Zero
-	// disables an individual limit.
+	payloadKey []byte
+}
+
+// WorkerSettings bounds the delivery worker.
+type WorkerSettings struct {
+	Concurrency     int
+	Lease           time.Duration
+	DeliveryTimeout time.Duration
+	MaxAttempts     int
+}
+
+// RateLimitSettings holds per-assignment and per-endpoint concurrency and rate
+// limits with bounded backpressure. Zero disables an individual limit.
+type RateLimitSettings struct {
 	EndpointConcurrency   int
 	AssignmentConcurrency int
 	EndpointRatePerSec    float64
 	EndpointRateBurst     int
 	AssignmentRatePerSec  float64
 	AssignmentRateBurst   int
+}
 
-	// Retention worker bounds.
-	RetentionInterval time.Duration
-	RetentionBatch    int
-	OutboxRetention   time.Duration
+// RetentionSettings bounds the retention/cleanup worker.
+type RetentionSettings struct {
+	Interval        time.Duration
+	Batch           int
+	OutboxRetention time.Duration
+}
 
-	payloadKey []byte
+// SinkSettings selects and locates the payload-free metadata outbox sink.
+type SinkSettings struct {
+	OutboxSink        string
+	SinkURL           string
+	MetadataSinkURL   string
+	MetadataSinkToken string
+}
+
+// TransportSettings holds listener/TLS and delivery SSRF-allowance settings. The
+// delivery allowances all default false (SSRF-safe); they are explicit opt-ins
+// for trusted local/VM sinks and reduce SSRF protection when enabled.
+type TransportSettings struct {
+	ProxyMode      bool
+	TLSCertFile    string
+	TLSKeyFile     string
+	AllowLoopback  bool
+	AllowPrivate   bool
+	AllowPlaintext bool
 }
 
 // ObjectStoreSettings is the validated S3-compatible object-store configuration.
@@ -192,33 +213,33 @@ func (r RuntimeConfig) Production() bool { return !r.EvaluationMode }
 // AllowLoopbackDelivery reports whether the delivery transport may reach
 // loopback destinations. Evaluation mode or an explicit opt-in enables it.
 func (r RuntimeConfig) AllowLoopbackDelivery() bool {
-	return r.EvaluationMode || r.DeliveryAllowLoopback
+	return r.EvaluationMode || r.Transport.AllowLoopback
 }
 
 // AllowPrivateDelivery reports whether the delivery transport may reach private
 // (RFC 1918 / ULA) destinations. This is an explicit opt-in for trusted local
 // networks and container sinks.
 func (r RuntimeConfig) AllowPrivateDelivery() bool {
-	return r.DeliveryAllowPrivate
+	return r.Transport.AllowPrivate
 }
 
 // AllowPlaintextDelivery reports whether the delivery transport may use plaintext
 // http. Evaluation mode or an explicit opt-in enables it.
 func (r RuntimeConfig) AllowPlaintextDelivery() bool {
-	return r.EvaluationMode || r.DeliveryAllowPlaintext
+	return r.EvaluationMode || r.Transport.AllowPlaintext
 }
 
 // HasTLS reports whether a complete TLS certificate/key pair is configured for
 // direct HTTPS termination by the process itself.
 func (r RuntimeConfig) HasTLS() bool {
-	return r.TLSCertFile != "" && r.TLSKeyFile != ""
+	return r.Transport.TLSCertFile != "" && r.Transport.TLSKeyFile != ""
 }
 
 // validateTLSPair rejects a partial TLS configuration: the certificate and key
 // must be configured together or not at all.
 func (r RuntimeConfig) validateTLSPair() error {
-	certSet := strings.TrimSpace(r.TLSCertFile) != ""
-	keySet := strings.TrimSpace(r.TLSKeyFile) != ""
+	certSet := strings.TrimSpace(r.Transport.TLSCertFile) != ""
+	keySet := strings.TrimSpace(r.Transport.TLSKeyFile) != ""
 	if certSet != keySet {
 		return fmt.Errorf("%s and %s must be configured together", envTLSCert, envTLSKey)
 	}
@@ -227,24 +248,51 @@ func (r RuntimeConfig) validateTLSPair() error {
 
 func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 	runtime := RuntimeConfig{
-		Backend:           strings.TrimSpace(getenv(envBackend)),
-		DatabaseURL:       strings.TrimSpace(getenv(envDatabaseURL)),
-		PayloadBackend:    strings.TrimSpace(getenv(envPayloadBackend)),
-		RedisURL:          strings.TrimSpace(getenv(envRedisURL)),
-		ConfigFile:        strings.TrimSpace(getenv(envConfigFile)),
-		WorkerConcurrency: defaultWorkerConcurrency,
-		WorkerLease:       defaultWorkerLease,
-		DeliveryTimeout:   defaultDeliveryTimeout,
-		MaxAttempts:       defaultMaxAttempts,
-		RetentionInterval: defaultRetentionInterval,
-		RetentionBatch:    defaultRetentionBatch,
-		OutboxRetention:   defaultOutboxRetention,
-		OutboxSink:        strings.TrimSpace(getenv(envOutboxSink)),
-		SinkURL:           strings.TrimSpace(getenv(envSinkURL)),
-		MetadataSinkURL:   strings.TrimSpace(getenv(envMetadataSinkURL)),
-		MetadataSinkToken: strings.TrimSpace(getenv(envMetadataSinkToken)),
-		TLSCertFile:       strings.TrimSpace(getenv(envTLSCert)),
-		TLSKeyFile:        strings.TrimSpace(getenv(envTLSKey)),
+		Backend:        strings.TrimSpace(getenv(envBackend)),
+		DatabaseURL:    strings.TrimSpace(getenv(envDatabaseURL)),
+		PayloadBackend: strings.TrimSpace(getenv(envPayloadBackend)),
+		RedisURL:       strings.TrimSpace(getenv(envRedisURL)),
+		ConfigFile:     strings.TrimSpace(getenv(envConfigFile)),
+		KeyProvider:    strings.TrimSpace(getenv(envKeyProvider)),
+		Worker: WorkerSettings{
+			Concurrency:     defaultWorkerConcurrency,
+			Lease:           defaultWorkerLease,
+			DeliveryTimeout: defaultDeliveryTimeout,
+			MaxAttempts:     defaultMaxAttempts,
+		},
+		Retention: RetentionSettings{
+			Interval:        defaultRetentionInterval,
+			Batch:           defaultRetentionBatch,
+			OutboxRetention: defaultOutboxRetention,
+		},
+		Sink: SinkSettings{
+			OutboxSink:        strings.TrimSpace(getenv(envOutboxSink)),
+			SinkURL:           strings.TrimSpace(getenv(envSinkURL)),
+			MetadataSinkURL:   strings.TrimSpace(getenv(envMetadataSinkURL)),
+			MetadataSinkToken: strings.TrimSpace(getenv(envMetadataSinkToken)),
+		},
+		Transport: TransportSettings{
+			TLSCertFile: strings.TrimSpace(getenv(envTLSCert)),
+			TLSKeyFile:  strings.TrimSpace(getenv(envTLSKey)),
+		},
+		ObjectStore: ObjectStoreSettings{
+			Endpoint:        strings.TrimSpace(getenv(envObjectEndpoint)),
+			Region:          strings.TrimSpace(getenv(envObjectRegion)),
+			Bucket:          strings.TrimSpace(getenv(envObjectBucket)),
+			CABundlePath:    strings.TrimSpace(getenv(envObjectCABundle)),
+			AccessKeyID:     strings.TrimSpace(getenv(envObjectAccessKey)),
+			SecretAccessKey: strings.TrimSpace(getenv(envObjectSecretKey)),
+			SessionToken:    strings.TrimSpace(getenv(envObjectSession)),
+		},
+		KMS: KMSSettings{
+			KeyID:           strings.TrimSpace(getenv(envKMSKeyID)),
+			Region:          strings.TrimSpace(getenv(envKMSRegion)),
+			Endpoint:        strings.TrimSpace(getenv(envKMSEndpoint)),
+			AccessKeyID:     strings.TrimSpace(getenv(envKMSAccessKey)),
+			SecretAccessKey: strings.TrimSpace(getenv(envKMSSecretKey)),
+			SessionToken:    strings.TrimSpace(getenv(envKMSSession)),
+			WrappedDataKey:  strings.TrimSpace(getenv(envKMSDataKeyB64)),
+		},
 	}
 	if brokers := strings.TrimSpace(getenv(envKafkaBrokers)); brokers != "" {
 		for _, broker := range strings.Split(brokers, ",") {
@@ -254,97 +302,48 @@ func runtimeFromEnv(getenv func(string) string) (RuntimeConfig, error) {
 		}
 	}
 
-	var err error
-	if runtime.EvaluationMode, err = boolFromEnv(getenv, envEvaluationMode); err != nil {
-		return RuntimeConfig{}, err
+	// Typed env descriptors. Each parses one HOOKSHIP_* variable into its typed
+	// destination, leaving the default in place when the variable is unset. This
+	// replaces ~20 near-identical parse-and-check blocks without reflection.
+	parsers := []envParser{
+		boolEnv(envEvaluationMode, &runtime.EvaluationMode),
+		boolEnv(envProxyMode, &runtime.Transport.ProxyMode),
+		boolEnv(envDeliverLoopback, &runtime.Transport.AllowLoopback),
+		boolEnv(envDeliverPrivate, &runtime.Transport.AllowPrivate),
+		boolEnv(envDeliverPlaintext, &runtime.Transport.AllowPlaintext),
+
+		intEnv(envWorkerConcurrency, &runtime.Worker.Concurrency),
+		intEnv(envMaxAttempts, &runtime.Worker.MaxAttempts),
+		durationEnv(envWorkerLease, &runtime.Worker.Lease),
+		durationEnv(envDeliveryTimeout, &runtime.Worker.DeliveryTimeout),
+
+		intEnv(envEndpointConcurrency, &runtime.RateLimit.EndpointConcurrency),
+		intEnv(envAssignmentConcurrency, &runtime.RateLimit.AssignmentConcurrency),
+		intEnv(envEndpointBurst, &runtime.RateLimit.EndpointRateBurst),
+		intEnv(envAssignmentBurst, &runtime.RateLimit.AssignmentRateBurst),
+		floatEnv(envEndpointRate, &runtime.RateLimit.EndpointRatePerSec),
+		floatEnv(envAssignmentRate, &runtime.RateLimit.AssignmentRatePerSec),
+
+		intEnv(envRetentionBatch, &runtime.Retention.Batch),
+		durationEnv(envRetentionInterval, &runtime.Retention.Interval),
+		durationEnv(envOutboxRetention, &runtime.Retention.OutboxRetention),
+
+		boolEnv(envObjectPathStyle, &runtime.ObjectStore.PathStyle),
+		boolEnv(envObjectUseTLS, &runtime.ObjectStore.UseTLS),
+		boolEnv(envObjectPlaintext, &runtime.ObjectStore.AllowPlaintext),
 	}
-	if runtime.ProxyMode, err = boolFromEnv(getenv, envProxyMode); err != nil {
-		return RuntimeConfig{}, err
+	for _, parse := range parsers {
+		if err := parse(getenv); err != nil {
+			return RuntimeConfig{}, err
+		}
 	}
-	if runtime.DeliveryAllowLoopback, err = boolFromEnv(getenv, envDeliverLoopback); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if runtime.DeliveryAllowPrivate, err = boolFromEnv(getenv, envDeliverPrivate); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if runtime.DeliveryAllowPlaintext, err = boolFromEnv(getenv, envDeliverPlaintext); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envWorkerConcurrency, &runtime.WorkerConcurrency); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envMaxAttempts, &runtime.MaxAttempts); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := durationFromEnv(getenv, envWorkerLease, &runtime.WorkerLease); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := durationFromEnv(getenv, envDeliveryTimeout, &runtime.DeliveryTimeout); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envEndpointConcurrency, &runtime.EndpointConcurrency); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envAssignmentConcurrency, &runtime.AssignmentConcurrency); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envEndpointBurst, &runtime.EndpointRateBurst); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envAssignmentBurst, &runtime.AssignmentRateBurst); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := intFromEnv(getenv, envRetentionBatch, &runtime.RetentionBatch); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := floatFromEnv(getenv, envEndpointRate, &runtime.EndpointRatePerSec); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := floatFromEnv(getenv, envAssignmentRate, &runtime.AssignmentRatePerSec); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := durationFromEnv(getenv, envRetentionInterval, &runtime.RetentionInterval); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if err := durationFromEnv(getenv, envOutboxRetention, &runtime.OutboxRetention); err != nil {
-		return RuntimeConfig{}, err
-	}
+
 	if value := strings.TrimSpace(getenv(envPayloadKey)); value != "" {
 		key, err := decodeKey(value)
 		if err != nil {
 			return RuntimeConfig{}, err
 		}
 		runtime.payloadKey = key
-	}
-
-	runtime.ObjectStore = ObjectStoreSettings{
-		Endpoint:        strings.TrimSpace(getenv(envObjectEndpoint)),
-		Region:          strings.TrimSpace(getenv(envObjectRegion)),
-		Bucket:          strings.TrimSpace(getenv(envObjectBucket)),
-		CABundlePath:    strings.TrimSpace(getenv(envObjectCABundle)),
-		AccessKeyID:     strings.TrimSpace(getenv(envObjectAccessKey)),
-		SecretAccessKey: strings.TrimSpace(getenv(envObjectSecretKey)),
-		SessionToken:    strings.TrimSpace(getenv(envObjectSession)),
-	}
-	if runtime.ObjectStore.PathStyle, err = boolFromEnv(getenv, envObjectPathStyle); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if runtime.ObjectStore.UseTLS, err = boolFromEnv(getenv, envObjectUseTLS); err != nil {
-		return RuntimeConfig{}, err
-	}
-	if runtime.ObjectStore.AllowPlaintext, err = boolFromEnv(getenv, envObjectPlaintext); err != nil {
-		return RuntimeConfig{}, err
-	}
-
-	runtime.KeyProvider = strings.TrimSpace(getenv(envKeyProvider))
-	runtime.KMS = KMSSettings{
-		KeyID:           strings.TrimSpace(getenv(envKMSKeyID)),
-		Region:          strings.TrimSpace(getenv(envKMSRegion)),
-		Endpoint:        strings.TrimSpace(getenv(envKMSEndpoint)),
-		AccessKeyID:     strings.TrimSpace(getenv(envKMSAccessKey)),
-		SecretAccessKey: strings.TrimSpace(getenv(envKMSSecretKey)),
-		SessionToken:    strings.TrimSpace(getenv(envKMSSession)),
-		WrappedDataKey:  strings.TrimSpace(getenv(envKMSDataKeyB64)),
 	}
 	return runtime, nil
 }
@@ -381,7 +380,7 @@ func (r RuntimeConfig) SelectionForListen(listenAddress string) (capabilities.Se
 		return capabilities.Selection{}, err
 	}
 	loopbackOnly := isLoopbackBind(listenAddress)
-	plaintext := !r.HasTLS() && !r.ProxyMode
+	plaintext := !r.HasTLS() && !r.Transport.ProxyMode
 	return r.Selection(loopbackOnly, plaintext), nil
 }
 
@@ -392,34 +391,34 @@ func (r RuntimeConfig) validateWithSelection(selection capabilities.Selection) e
 	if !r.Selected() {
 		return nil
 	}
-	if r.WorkerConcurrency < 1 || r.WorkerConcurrency > 256 {
+	if r.Worker.Concurrency < 1 || r.Worker.Concurrency > 256 {
 		return fmt.Errorf("%s must be between 1 and 256", envWorkerConcurrency)
 	}
-	if r.WorkerLease < time.Second || r.WorkerLease > time.Hour {
+	if r.Worker.Lease < time.Second || r.Worker.Lease > time.Hour {
 		return fmt.Errorf("%s must be between 1s and 1h", envWorkerLease)
 	}
-	if r.DeliveryTimeout < time.Second || r.DeliveryTimeout > 10*time.Minute {
+	if r.Worker.DeliveryTimeout < time.Second || r.Worker.DeliveryTimeout > 10*time.Minute {
 		return fmt.Errorf("%s must be between 1s and 10m", envDeliveryTimeout)
 	}
-	if r.MaxAttempts < 1 || r.MaxAttempts > 1000 {
+	if r.Worker.MaxAttempts < 1 || r.Worker.MaxAttempts > 1000 {
 		return fmt.Errorf("%s must be between 1 and 1000", envMaxAttempts)
 	}
-	if r.EndpointConcurrency < 0 || r.EndpointConcurrency > 100000 {
+	if r.RateLimit.EndpointConcurrency < 0 || r.RateLimit.EndpointConcurrency > 100000 {
 		return fmt.Errorf("%s must be between 0 and 100000", envEndpointConcurrency)
 	}
-	if r.AssignmentConcurrency < 0 || r.AssignmentConcurrency > 100000 {
+	if r.RateLimit.AssignmentConcurrency < 0 || r.RateLimit.AssignmentConcurrency > 100000 {
 		return fmt.Errorf("%s must be between 0 and 100000", envAssignmentConcurrency)
 	}
-	if r.EndpointRateBurst < 0 || r.AssignmentRateBurst < 0 {
+	if r.RateLimit.EndpointRateBurst < 0 || r.RateLimit.AssignmentRateBurst < 0 {
 		return fmt.Errorf("rate burst values must not be negative")
 	}
-	if r.RetentionInterval != 0 && (r.RetentionInterval < time.Second || r.RetentionInterval > time.Hour) {
+	if r.Retention.Interval != 0 && (r.Retention.Interval < time.Second || r.Retention.Interval > time.Hour) {
 		return fmt.Errorf("%s must be between 1s and 1h", envRetentionInterval)
 	}
-	if r.RetentionBatch != 0 && (r.RetentionBatch < 1 || r.RetentionBatch > 10000) {
+	if r.Retention.Batch != 0 && (r.Retention.Batch < 1 || r.Retention.Batch > 10000) {
 		return fmt.Errorf("%s must be between 1 and 10000", envRetentionBatch)
 	}
-	if r.OutboxRetention != 0 && r.OutboxRetention < time.Minute {
+	if r.Retention.OutboxRetention != 0 && r.Retention.OutboxRetention < time.Minute {
 		return fmt.Errorf("%s must be at least 1m", envOutboxRetention)
 	}
 
@@ -516,100 +515,4 @@ func (r RuntimeConfig) UsesObjectStore() bool {
 // UsesKMS reports whether the AWS KMS key provider is selected.
 func (r RuntimeConfig) UsesKMS() bool {
 	return r.KeyProvider == keyProviderKMS
-}
-
-func decodeKey(value string) ([]byte, error) {
-	if decoded, err := hex.DecodeString(value); err == nil && len(decoded) == payloadcrypto.KeySize {
-		return decoded, nil
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(value); err == nil && len(decoded) == payloadcrypto.KeySize {
-		return decoded, nil
-	}
-	return nil, fmt.Errorf("%s must be a %d-byte key in hex or base64", envPayloadKey, payloadcrypto.KeySize)
-}
-
-func boolFromEnv(getenv func(string) string, name string) (bool, error) {
-	value := strings.TrimSpace(getenv(name))
-	if value == "" {
-		return false, nil
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
-	}
-	return parsed, nil
-}
-
-func intFromEnv(getenv func(string) string, name string, destination *int) error {
-	value := strings.TrimSpace(getenv(name))
-	if value == "" {
-		return nil
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fmt.Errorf("%s must be an integer: %w", name, err)
-	}
-	*destination = parsed
-	return nil
-}
-
-func floatFromEnv(getenv func(string) string, name string, destination *float64) error {
-	value := strings.TrimSpace(getenv(name))
-	if value == "" {
-		return nil
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		return fmt.Errorf("%s must be a number: %w", name, err)
-	}
-	if parsed < 0 {
-		return fmt.Errorf("%s must not be negative", name)
-	}
-	*destination = parsed
-	return nil
-}
-
-// isLoopbackBind reports whether a listen address binds only the loopback
-// interface.
-func isLoopbackBind(address string) bool {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return false
-	}
-	host = strings.TrimSpace(host)
-	switch host {
-	case "localhost":
-		return true
-	case "":
-		return false
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-// isLoopbackEndpoint reports whether an object-store endpoint URL or host:port
-// targets the loopback interface, so local MinIO over plaintext HTTP is allowed
-// while a remote plaintext endpoint fails closed in production.
-func isLoopbackEndpoint(endpoint string) bool {
-	endpoint = strings.TrimSpace(endpoint)
-	if endpoint == "" {
-		return false
-	}
-	host := endpoint
-	if strings.Contains(endpoint, "://") {
-		parsed, err := url.Parse(endpoint)
-		if err != nil {
-			return false
-		}
-		host = parsed.Host
-	}
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.TrimSpace(host)
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }

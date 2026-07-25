@@ -26,7 +26,7 @@ func ResolveAssignments(runtimeCfg config.RuntimeConfig) ([]runtime.Assignment, 
 		return file.RuntimeAssignments()
 	}
 	if runtimeCfg.Backend == capabilities.ProfileMemory && runtimeCfg.EvaluationMode {
-		sink := strings.TrimSpace(runtimeCfg.SinkURL)
+		sink := strings.TrimSpace(runtimeCfg.Sink.SinkURL)
 		if sink == "" {
 			sink = DefaultEvaluationSinkURL
 		}

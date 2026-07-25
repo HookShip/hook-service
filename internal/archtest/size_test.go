@@ -30,7 +30,7 @@ const (
 var goAllowlist = map[string]int{
 	"internal/durability/postgres/store_objectstage.go": 941,
 	"internal/durability/postgres/leases.go":            456,
-	"internal/config/runtime.go":                        615,
+	"internal/config/runtime.go":                        523,
 	"internal/ingest/handler.go":                        535,
 	"internal/release/release.go":                       456,
 }

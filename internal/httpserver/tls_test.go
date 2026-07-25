@@ -82,8 +82,8 @@ func TestServeTLSAcceptsHTTPSAndRejectsPlaintext(t *testing.T) {
 	cfg.ShutdownTimeout = time.Second
 	// Direct TLS termination is independent of backend selection; a complete
 	// cert/key pair is sufficient to switch the listener to HTTPS.
-	cfg.Runtime.TLSCertFile = certPath
-	cfg.Runtime.TLSKeyFile = keyPath
+	cfg.Runtime.Transport.TLSCertFile = certPath
+	cfg.Runtime.Transport.TLSKeyFile = keyPath
 
 	server, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), buildinfo.Info{Version: "test"})
 	if err != nil {
@@ -142,8 +142,8 @@ func TestNewFailsFastOnUnreadableCert(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
 	cfg.ListenAddress = "127.0.0.1:0"
-	cfg.Runtime.TLSCertFile = filepath.Join(t.TempDir(), "missing.crt")
-	cfg.Runtime.TLSKeyFile = filepath.Join(t.TempDir(), "missing.key")
+	cfg.Runtime.Transport.TLSCertFile = filepath.Join(t.TempDir(), "missing.crt")
+	cfg.Runtime.Transport.TLSKeyFile = filepath.Join(t.TempDir(), "missing.key")
 
 	_, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), buildinfo.Info{Version: "test"})
 	if err == nil {
@@ -155,7 +155,7 @@ func TestNewRejectsPartialTLSPair(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
 	cfg.ListenAddress = "127.0.0.1:0"
-	cfg.Runtime.TLSCertFile = "/tmp/only-cert.pem"
+	cfg.Runtime.Transport.TLSCertFile = "/tmp/only-cert.pem"
 	// No key set: configuration validation must reject the partial pair.
 	if _, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), buildinfo.Info{Version: "test"}); err == nil {
 		t.Fatal("expected New to reject a partial TLS pair")

@@ -169,7 +169,7 @@ func TestRunWorkerSetupFailureAfterServerLaunchReturnsOriginalError(t *testing.T
 	cfg := memoryConfig(t, "127.0.0.1:0")
 	// A file path whose parent directory does not exist makes buildWorker's sink
 	// creation fail after the server has already been launched.
-	cfg.Runtime.OutboxSink = filepath.Join(t.TempDir(), "does-not-exist", "observations.jsonl")
+	cfg.Runtime.Sink.OutboxSink = filepath.Join(t.TempDir(), "does-not-exist", "observations.jsonl")
 
 	result := make(chan error, 1)
 	go func() {
