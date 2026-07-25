@@ -153,3 +153,19 @@ func TestNewSignerRejectsEmptySecret(t *testing.T) {
 		t.Fatal("expected empty decoded whsec secret rejection")
 	}
 }
+
+// TestSignedContentIsCanonical locks the exact bytes of the single
+// canonical-content constructor. computeRaw signs exactly these bytes, so this
+// vector guarantees the HMAC input and the exported conformance content can
+// never drift apart.
+func TestSignedContentIsCanonical(t *testing.T) {
+	got := signing.SignedContent("msg_123", "1700000000", []byte(`{"hello":"world"}`))
+	want := `msg_123.1700000000.{"hello":"world"}`
+	if string(got) != want {
+		t.Fatalf("SignedContent = %q, want %q", got, want)
+	}
+	// An empty payload still yields the two-separator canonical form.
+	if string(signing.SignedContent("id", "1", nil)) != "id.1." {
+		t.Fatalf("empty-payload canonical content mismatch: %q", signing.SignedContent("id", "1", nil))
+	}
+}

@@ -109,11 +109,10 @@ func (s *Signer) computeVersioned(messageID, unix string, payload []byte) string
 
 func (s *Signer) computeRaw(messageID, unix string, payload []byte) string {
 	mac := hmac.New(sha256.New, s.key)
-	mac.Write([]byte(messageID))
-	mac.Write([]byte("."))
-	mac.Write([]byte(unix))
-	mac.Write([]byte("."))
-	mac.Write(payload)
+	// SignedContent is the single canonical-content constructor; using it here
+	// guarantees the HMAC input is byte-identical to the exported conformance
+	// bytes. Byte identity is locked by the Standard Webhooks golden vectors.
+	mac.Write(SignedContent(messageID, unix, payload))
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
