@@ -67,8 +67,10 @@ hookshipd all      # single-process developer/VM mode
 Operator commands:
 
 ```sh
+hookshipctl version            # print CLI/build version (text or -output=json)
 hookshipctl migrate            # apply PostgreSQL durability migrations
 hookshipctl doctor             # validate configuration and backend selection
+hookshipctl diagnostics        # read a running daemon's /healthz, /readyz, /statusz
 hookshipctl backend list       # list profiles and capabilities
 hookshipctl backend describe postgres
 hookshipctl backend validate -config hookship.yaml

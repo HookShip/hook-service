@@ -38,7 +38,12 @@ producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one Pos
   checksum enforcement, assignment-scoped persistence, atomic acceptance,
   restart-readable object staging metadata, database-clock leases, fencing,
   versioned stage-write attempt identities, payload-deletion recovery, and
-  retention transitions. The `postgres` backend wraps it and the ingest handler
+  retention transitions. Its `Repository` is a thin facade composing focused
+  single-responsibility components — idempotency store, acceptance store,
+  object-stage store, job queue, outbox queue, nonce ledger, diagnostics, and
+  retention manager (`store_idempotency.go`, `store_acceptance.go`,
+  `store_objectstage.go`, `leases.go`, `leased.go`, `retention.go`,
+  `durable_runtime.go`). The `postgres` backend wraps it and the ingest handler
   and delivery worker drive it through the runtime ports.
 
 - `internal/runtime` defines the backend-agnostic ports (assignment/credential

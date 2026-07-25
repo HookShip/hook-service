@@ -76,3 +76,62 @@ func TestRunDiagnosticsFailure(t *testing.T) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
+
+func TestRunVersionText(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"version"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("version text code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.HasPrefix(stdout.String(), "hookshipctl ") {
+		t.Fatalf("version text output = %q", stdout.String())
+	}
+}
+
+func TestRunVersionRejectsBadOutput(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"version", "-output=yaml"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("bad output code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "text or json") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunVersionRejectsExtraArgs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"version", "extra"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("extra args code = %d, want 2", code)
+	}
+}
+
+func TestRunHelp(t *testing.T) {
+	for _, arg := range []string{"help", "-h", "--help"} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), []string{arg}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s code = %d, want 0", arg, code)
+		}
+		if !strings.Contains(stdout.String(), "hookshipctl") {
+			t.Fatalf("%s usage missing, got %q", arg, stdout.String())
+		}
+	}
+}
+
+func TestRunNoArgs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), nil, &stdout, &stderr); code != 2 {
+		t.Fatalf("no-args code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "hookshipctl") {
+		t.Fatalf("no-args usage missing, got %q", stderr.String())
+	}
+}
+
+func TestRunUnknownCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"frobnicate"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("unknown command code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
