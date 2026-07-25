@@ -115,6 +115,14 @@ hash plus event ID, event type, route, and content type. Timestamp, nonce,
 signature, and rotating credential ID are excluded. Concurrent reservation
 uses the unique `(assignment_id, idempotency_key)` constraint and row locking.
 
+The fingerprint algorithm and its stable-header identity live in the
+dependency-free [`internal/idempotency`](../internal/idempotency) package and
+are shared byte-for-byte by the runtime ports and the PostgreSQL durability
+layer, so a duplicate accepted through any profile is recognized by every other
+profile. The durability implementation itself is a thin `Repository` facade over
+focused single-responsibility components (idempotency, acceptance, object-stage,
+job queue, outbox queue, nonce ledger, diagnostics, and retention).
+
 Committed receipts retain a retry expiry at least 24 hours after acceptance.
 While classifying a retry under the row lock, the repository first changes an
 expired committed receipt to a terminal tombstone. Expired classification
