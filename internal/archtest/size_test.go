@@ -28,11 +28,10 @@ const (
 // Entries are the current known hotspots. Lower or delete an entry as the file
 // is decomposed; never raise one.
 var goAllowlist = map[string]int{
-	"internal/durability/postgres/store_objectstage.go": 941,
-	"internal/durability/postgres/leases.go":            456,
-	"internal/config/runtime.go":                        523,
-	"internal/ingest/handler.go":                        535,
-	"internal/release/release.go":                       456,
+	"internal/durability/postgres/leases.go": 456,
+	"internal/config/runtime.go":             523,
+	"internal/ingest/handler.go":             535,
+	"internal/release/release.go":            456,
 }
 
 // shellAllowlist maps a repo-relative path to its permitted maximum line count.
