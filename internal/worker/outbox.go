@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -73,12 +72,8 @@ func (w *Worker) publishOutbox(ctx context.Context, item runtime.OutboxItem, tok
 	err := w.options.Sink.Publish(publishCtx, observation)
 	cancel()
 	if err != nil {
-		if retryErr := w.options.Backend.RetryOutbox(ctx, lease, 5*time.Second, "sink_error"); retryErr != nil && !errors.Is(retryErr, runtime.ErrLeaseLost) {
-			w.options.Logger.Warn("retry outbox failed", slog.String("outbox_id", item.OutboxID), slog.String("error", retryErr.Error()))
-		}
+		w.logSettlement("retry_outbox", item.OutboxID, w.options.Backend.RetryOutbox(ctx, lease, 5*time.Second, "sink_error"))
 		return
 	}
-	if err := w.options.Backend.PublishOutbox(ctx, lease); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
-		w.options.Logger.Warn("publish outbox failed", slog.String("outbox_id", item.OutboxID), slog.String("error", err.Error()))
-	}
+	w.logSettlement("publish_outbox", item.OutboxID, w.options.Backend.PublishOutbox(ctx, lease))
 }

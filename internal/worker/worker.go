@@ -198,7 +198,7 @@ func (w *Worker) deliver(ctx context.Context, assignment runtime.Assignment, job
 	if !w.breakers.Allow(breakerKey) {
 		// The endpoint circuit is open; reschedule without a provider call.
 		w.options.Metrics.Inc(metrics.CounterCircuitOpenSkips)
-		_ = w.options.Backend.RetryJob(ctx, lease, w.breakers.Cooldown(), "circuit_open")
+		w.logSettlement("retry_circuit_open", job.JobID, w.options.Backend.RetryJob(ctx, lease, w.breakers.Cooldown(), "circuit_open"))
 		return
 	}
 
@@ -213,7 +213,7 @@ func (w *Worker) deliver(ctx context.Context, assignment runtime.Assignment, job
 		default:
 			w.options.Metrics.Inc(metrics.CounterConcurrencyDeferred)
 		}
-		_ = w.options.Backend.RetryJob(ctx, lease, w.options.BackpressureDelay, "backpressure_"+string(reason))
+		w.logSettlement("retry_backpressure", job.JobID, w.options.Backend.RetryJob(ctx, lease, w.options.BackpressureDelay, "backpressure_"+string(reason)))
 		return
 	}
 	defer releaseLimit()
@@ -224,19 +224,19 @@ func (w *Worker) deliver(ctx context.Context, assignment runtime.Assignment, job
 	delivery, err := w.options.Backend.LoadDelivery(ctx, job)
 	if err != nil {
 		w.options.Logger.Warn("load delivery failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
-		_ = w.options.Backend.RetryJob(ctx, lease, w.backoff(job.Attempts, source), "load_failed")
+		w.logSettlement("retry_load_failed", job.JobID, w.options.Backend.RetryJob(ctx, lease, w.backoff(job.Attempts, source), "load_failed"))
 		return
 	}
 
 	signer, err := signing.NewSigner(delivery.Endpoint.SigningSecret)
 	if err != nil {
-		_ = w.options.Backend.FailJob(ctx, lease, "invalid_signing_secret")
+		w.logSettlement("fail_invalid_signing_secret", job.JobID, w.options.Backend.FailJob(ctx, lease, "invalid_signing_secret"))
 		return
 	}
 	started := w.options.Clock.Now()
 	signature, err := signer.Sign(job.DeliveryID, started, delivery.Body)
 	if err != nil {
-		_ = w.options.Backend.FailJob(ctx, lease, "sign_failed")
+		w.logSettlement("fail_sign_failed", job.JobID, w.options.Backend.FailJob(ctx, lease, "sign_failed"))
 		return
 	}
 
@@ -262,23 +262,34 @@ func (w *Worker) settle(ctx context.Context, lease runtime.JobLease, job runtime
 	switch classification.Outcome {
 	case runtime.OutcomeSuccess:
 		w.options.Metrics.Inc(metrics.CounterDeliveriesSucceeded)
-		if err := w.options.Backend.CompleteJob(ctx, lease); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
-			w.options.Logger.Warn("complete job failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
-		}
+		w.logSettlement("complete", job.JobID, w.options.Backend.CompleteJob(ctx, lease))
 	case runtime.OutcomeTerminal:
 		w.options.Metrics.Inc(metrics.CounterDeliveriesDead)
-		if err := w.options.Backend.FailJob(ctx, lease, classification.ErrorCode); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
-			w.options.Logger.Warn("fail job failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
-		}
+		w.logSettlement("fail_terminal", job.JobID, w.options.Backend.FailJob(ctx, lease, classification.ErrorCode))
 	default:
 		w.options.Metrics.Inc(metrics.CounterDeliveriesRetried)
 		delay := w.backoff(job.Attempts, source)
 		if classification.HasRetryAfter && classification.RetryAfter > 0 {
 			delay = boundRetryAfter(classification.RetryAfter, w.options.MaxBackoff)
 		}
-		if err := w.options.Backend.RetryJob(ctx, lease, delay, classification.ErrorCode); err != nil && !errors.Is(err, runtime.ErrLeaseLost) {
-			w.options.Logger.Warn("retry job failed", slog.String("job_id", job.JobID), slog.String("error", err.Error()))
-		}
+		w.logSettlement("retry", job.JobID, w.options.Backend.RetryJob(ctx, lease, delay, classification.ErrorCode))
+	}
+}
+
+// logSettlement uniformly surfaces the outcome of a job or outbox settlement or
+// reschedule so no settlement error is ever silently dropped. A lost or fenced
+// lease is an expected outcome under fencing (another worker won the work, or
+// the lease expired) and is logged at debug; any other error is logged at warn.
+func (w *Worker) logSettlement(op, workID string, err error) {
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, runtime.ErrLeaseLost):
+		w.options.Logger.Debug("settlement skipped: lease lost or fenced",
+			slog.String("op", op), slog.String("work_id", workID))
+	default:
+		w.options.Logger.Warn("settlement failed",
+			slog.String("op", op), slog.String("work_id", workID), slog.String("error", err.Error()))
 	}
 }
 
