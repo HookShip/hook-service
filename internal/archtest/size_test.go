@@ -25,14 +25,10 @@ const (
 )
 
 // goAllowlist maps a repo-relative path to its permitted maximum line count.
-// Entries are the current known hotspots. Lower or delete an entry as the file
-// is decomposed; never raise one.
-var goAllowlist = map[string]int{
-	"internal/durability/postgres/leases.go": 456,
-	"internal/config/runtime.go":             523,
-	"internal/ingest/handler.go":             535,
-	"internal/release/release.go":            456,
-}
+// Empty: every non-generated production Go file is under the default cap after
+// the decomposition work. Add an entry only for a genuinely irreducible hotspot,
+// and prefer splitting instead.
+var goAllowlist = map[string]int{}
 
 // shellAllowlist maps a repo-relative path to its permitted maximum line count.
 // Empty today: every shell script is under the default cap.
