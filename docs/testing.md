@@ -54,6 +54,21 @@ PostgreSQL/Redis/MinIO integration job (and locally whenever `TEST_DATABASE_URL`
 is set). The gate fails on any regression below a floor. Floors are a ratchet:
 raise them as coverage rises, never lower one to make a regression pass.
 
+The gate script is a tracked, executable part of the repository. Two guards keep
+it that way so it cannot be lost to an over-broad `.gitignore` (as it once was):
+a hermetic shell test (`deploy/scripts/test/coverage_gate_test.sh`, run by
+`make check`) asserts `git ls-files scripts/coverage.sh` contains it, that it is
+tracked executable, and that it executes; and an architecture test
+(`internal/archtest`) asserts every script the Makefile/CI reference is tracked
+and executable.
+
+The two database-wrapper packages (`internal/durability/postgres`,
+`internal/backend/postgres`) carry deliberately LOW unit floors (18%/19%): their
+pure logic is unit-tested, but their SQL is only measurable against a real
+database, so their low unit floors are **complemented by the mandatory
+integration floors** (56%/73%) enforced in the CI integration job. A regression
+in the SQL paths is caught by the integration floors, not the unit floors.
+
 ```sh
 make coverage                       # unit floors
 TEST_DATABASE_URL=... MINIO_TEST_...=... make coverage   # + integration floors

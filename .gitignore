@@ -1,7 +1,10 @@
 /bin/
 /dist/
 *.out
-coverage.*
+/coverage/
+/coverage.out
+/coverage.html
+/coverage.txt
 .DS_Store
 .idea/
 .vscode/
