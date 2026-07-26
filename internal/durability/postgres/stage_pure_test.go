@@ -176,3 +176,20 @@ func TestNewSupersedeLease(t *testing.T) {
 		t.Fatal("lease expiry mismatch")
 	}
 }
+
+func TestStageAttemptKeys(t *testing.T) {
+	id, staging, final, err := stageAttemptKeys("asg", "pay", 2)
+	if err != nil {
+		t.Fatalf("stageAttemptKeys: %v", err)
+	}
+	if id != stageWriteAttemptID("asg", "pay", 2) {
+		t.Fatal("attempt id must match the deterministic derivation")
+	}
+	wantStaging, wantFinal, _ := ObjectAttemptKeys("asg", "pay", 2)
+	if staging != wantStaging || final != wantFinal {
+		t.Fatalf("keys = %s/%s, want %s/%s", staging, final, wantStaging, wantFinal)
+	}
+	if _, _, _, err := stageAttemptKeys("asg", "pay", 0); err == nil {
+		t.Fatal("non-positive attempt must be rejected")
+	}
+}

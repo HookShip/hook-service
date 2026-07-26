@@ -41,10 +41,13 @@ producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one Pos
   retention transitions. Its `Repository` is a thin facade composing focused
   single-responsibility components — idempotency store, acceptance store,
   object-stage store, job queue, outbox queue, nonce ledger, diagnostics, and
-  retention manager (`store_idempotency.go`, `store_acceptance.go`,
-  `store_objectstage.go`, `leases.go`, `leased.go`, `retention.go`,
-  `durable_runtime.go`). The `postgres` backend wraps it and the ingest handler
-  and delivery worker drive it through the runtime ports.
+  retention manager. The object-stage state machine is split into
+  stage-intent (`stage_intent.go`), write/lease claim (`stage_write.go`,
+  `stage_lease.go`), supersession (`stage_supersede.go`), finalize/acceptance
+  (`stage_finalize.go`, `stage_accept.go`), and cleanup/query (`stage_query.go`);
+  the leased-work queues are split into `queue_job.go`, `queue_outbox.go`, and
+  the shared `leased.go`/`queue_common.go`. The `postgres` backend wraps it and
+  the ingest handler and delivery worker drive it through the runtime ports.
 
 - `internal/runtime` defines the backend-agnostic ports (assignment/credential
   source, nonce ledger, payload sealer, immutable payload object store,
