@@ -87,7 +87,7 @@ func probe(
 		result.Error = err.Error()
 		return result
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	result.HTTPStatus = response.StatusCode
 
 	var body struct {

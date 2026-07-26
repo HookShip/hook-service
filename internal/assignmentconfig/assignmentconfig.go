@@ -129,7 +129,7 @@ func (spec AssignmentSpec) toRuntime() (runtime.Assignment, error) {
 		return runtime.Assignment{}, errors.New("endpoint id and url are required")
 	}
 
-	environment := runtime.EnvironmentProduction
+	var environment runtime.Environment
 	switch strings.ToLower(strings.TrimSpace(spec.Environment)) {
 	case "", "production":
 		environment = runtime.EnvironmentProduction

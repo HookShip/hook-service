@@ -171,9 +171,11 @@ func RenderSPDX(in SPDXInput) ([]byte, error) {
 // real source URL, with a content-hash suffix guaranteeing uniqueness.
 func namespace(in SPDXInput) string {
 	hasher := sha256.New()
-	fmt.Fprintf(hasher, "%s\n%s\n%s\n%s\n", in.AppName, in.Version, in.Target.String(), in.MainModule)
+	// hash.Hash.Write never returns an error; the results are checked to satisfy
+	// errcheck without changing behavior.
+	_, _ = fmt.Fprintf(hasher, "%s\n%s\n%s\n%s\n", in.AppName, in.Version, in.Target.String(), in.MainModule)
 	for _, mod := range in.Modules {
-		fmt.Fprintf(hasher, "%s@%s\n", mod.Path, mod.Version)
+		_, _ = fmt.Fprintf(hasher, "%s@%s\n", mod.Path, mod.Version)
 	}
 	suffix := hex.EncodeToString(hasher.Sum(nil))[:16]
 	base := strings.TrimSuffix(sourceOrDefault(in.SourceURL), "/")

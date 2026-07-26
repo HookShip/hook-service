@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"strings"
 	"time"
 
 	"github.com/hookship/hook-service/internal/idempotency"
@@ -273,22 +272,4 @@ type EndpointSnapshot struct {
 	Content          []byte
 	ContentSHA256    Hash
 	CreatedAt        time.Time
-}
-
-// normalizeRoutes trims and de-duplicates configured routes.
-func normalizeRoutes(routes []string) []string {
-	seen := make(map[string]struct{}, len(routes))
-	out := make([]string, 0, len(routes))
-	for _, route := range routes {
-		trimmed := strings.TrimSpace(route)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	return out
 }

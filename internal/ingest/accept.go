@@ -127,7 +127,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// A status GET must carry no body; the signed body hash is SHA-256 of empty.
-	empty := make([]byte, 0)
+	var empty []byte
 	if body, ok := h.readBody(w, r, requestID, 8); ok {
 		empty = body
 	} else {
