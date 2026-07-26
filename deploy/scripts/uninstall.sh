@@ -63,7 +63,9 @@ remove_units() {
 			removed="yes"
 		fi
 	done
-	[ "${removed}" = "yes" ] && systemctl daemon-reload || true
+	if [ "${removed}" = "yes" ]; then
+		systemctl daemon-reload || true
+	fi
 }
 
 remove_binaries() {

@@ -58,14 +58,18 @@ case "${MODE}" in
 systemd)
 	[ "$(id -u)" -eq 0 ] || hs_die "systemd upgrade must run as root"
 	[ -n "${BINDIR}" ] || hs_die "--bindir DIR with the new binaries is required"
-	[ -x "${BINDIR}/hookshipd" ] && [ -x "${BINDIR}/hookshipctl" ] || hs_die "new binaries not found in ${BINDIR}"
+	if [ ! -x "${BINDIR}/hookshipd" ] || [ ! -x "${BINDIR}/hookshipctl" ]; then
+		hs_die "new binaries not found in ${BINDIR}"
+	fi
 	hs_require systemctl curl
 	backup_first
 
 	hs_log "snapshotting current binaries to ${ROLLBACK_DIR}"
 	install -d -m 0750 "${ROLLBACK_DIR}"
 	for bin in hookshipd hookshipctl; do
-		[ -x "${BIN_INSTALL_DIR}/${bin}" ] && cp -f "${BIN_INSTALL_DIR}/${bin}" "${ROLLBACK_DIR}/${bin}" || true
+		if [ -x "${BIN_INSTALL_DIR}/${bin}" ]; then
+			cp -f "${BIN_INSTALL_DIR}/${bin}" "${ROLLBACK_DIR}/${bin}"
+		fi
 	done
 
 	hs_log "installing new binaries"

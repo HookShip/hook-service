@@ -44,11 +44,16 @@ done
 hs_require docker pg_dump pg_restore psql
 
 # Invoked indirectly via `trap cleanup EXIT`.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 cleanup() {
-	[ "${KEEP}" = "yes" ] && { hs_warn "--keep set; leaving ${PRIMARY}, ${TARGET}, ${WORKDIR}"; return; }
+	if [ "${KEEP}" = "yes" ]; then
+		hs_warn "--keep set; leaving ${PRIMARY}, ${TARGET}, ${WORKDIR}"
+		return
+	fi
 	docker rm -f "${PRIMARY}" "${TARGET}" >/dev/null 2>&1 || true
-	[ -n "${WORKDIR}" ] && rm -rf "${WORKDIR}" || true
+	if [ -n "${WORKDIR}" ]; then
+		rm -rf "${WORKDIR}"
+	fi
 }
 trap cleanup EXIT
 

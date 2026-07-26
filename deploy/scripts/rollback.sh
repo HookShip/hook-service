@@ -70,8 +70,9 @@ EOF
 
 case "${MODE}" in
 systemd)
-	[ -x "${TO_BINDIR}/hookshipd" ] && [ -x "${TO_BINDIR}/hookshipctl" ] ||
+	if [ ! -x "${TO_BINDIR}/hookshipd" ] || [ ! -x "${TO_BINDIR}/hookshipctl" ]; then
 		hs_die "previous binaries not found in ${TO_BINDIR} (was this deployment upgraded with upgrade.sh?)"
+	fi
 
 	hs_log "probing schema compatibility with the previous code"
 	DSN="$(hs_resolve_dsn "${DSN_ARG}")"

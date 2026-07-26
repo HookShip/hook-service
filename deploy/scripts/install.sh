@@ -72,8 +72,9 @@ require_tools() {
 
 resolve_binaries() {
 	if [ -n "${BINDIR}" ]; then
-		[ -x "${BINDIR}/hookshipd" ] && [ -x "${BINDIR}/hookshipctl" ] ||
+		if [ ! -x "${BINDIR}/hookshipd" ] || [ ! -x "${BINDIR}/hookshipctl" ]; then
 			die "hookshipd/hookshipctl not found (or not executable) in ${BINDIR}"
+		fi
 		return
 	fi
 	if [ -x "${REPO_ROOT}/bin/hookshipd" ] && [ -x "${REPO_ROOT}/bin/hookshipctl" ]; then
