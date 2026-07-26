@@ -64,9 +64,16 @@ throughput, or service-level claims, and it has not been independently audited.
 - Adoption of the organization's reusable Go-validation and secret-scan
   workflows alongside the existing PostgreSQL/Redis/MinIO and container
   integration jobs.
+- Pinned `golangci-lint` (v2) configuration and gate (`.golangci.yml`,
+  `make lint`, wired into `make check`) layering error-handling and correctness
+  linters on top of `go vet`; formatting stays owned by `gofmt`.
 
 ### Changed
 
+- Bumped `golang.org/x/text` to v0.39.0 to clear the reachable GO-2026-5970
+  advisory (infinite loop on invalid input), and added a pinned `govulncheck`
+  gate (`make vulncheck`, run in `make ci`) so future reachable vulnerabilities
+  fail CI.
 - Documentation corrected to describe the implemented delivery runtime and the
   deployment surface, removing pre-implementation scope language that predated
   the delivery runtime.

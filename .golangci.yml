@@ -1,0 +1,51 @@
+# golangci-lint configuration for hook-service.
+#
+# A conservative, high-signal linter set layered on top of `go vet`. The
+# repository was already clean under `go vet` and `gofmt`; these linters add
+# error-handling and correctness checks without stylistic churn. Formatting
+# stays owned by `gofmt` (see `make fmt`/`make fmt-check`), so `goimports`
+# import-grouping is intentionally not enforced here.
+#
+# Run locally with `make lint`; CI runs the same set via a pinned version
+# (see the Makefile GOLANGCI_LINT_VERSION and `make ci`).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # golangci-lint v2 enables errcheck, govet, ineffassign, staticcheck, and
+  # unused by default. These add targeted correctness checks on top.
+  enable:
+    - bodyclose
+    - errorlint
+    - misspell
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    rules:
+      # Auxiliary tooling and runnable samples are not part of the delivered
+      # library/service surface and use intentionally simple patterns (direct
+      # os.Remove cleanup, best-effort Body.Close, %v error formatting).
+      - path: (^|/)(scripts|examples)/
+        linters:
+          - errcheck
+          - errorlint
+          - govet
+          - unused
+          - bodyclose
+      # Test code and the shared cross-backend test-support helpers exercise
+      # sentinel error paths and fixtures directly.
+      - path: (_test\.go$|/backendtest/)
+        linters:
+          - errcheck
+          - errorlint
+          - bodyclose
+          - govet
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt

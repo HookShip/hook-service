@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci coverage diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test shellcheck smoke-deploy spec-validate test test-integration test-race test-scripts validate vet
+.PHONY: all build check clean ci coverage diff-check docs-check fmt fmt-check gitleaks integration-image lint migration-check release-snapshot release-clean release-verify-test shellcheck smoke-deploy spec-validate test test-integration test-race test-scripts validate vet vulncheck
 
 all: build
 
@@ -42,6 +42,26 @@ test-race:
 
 vet:
 	$(GO) vet ./...
+
+# lint runs golangci-lint with the pinned, high-signal linter set in
+# .golangci.yml. It prefers a locally installed golangci-lint for a fast inner
+# loop and otherwise falls back to a version-pinned `go run`, so CI (which has
+# no preinstalled binary) is deterministic. Formatting stays owned by gofmt.
+GOLANGCI_LINT_VERSION ?= v2.12.2
+lint:
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run ./...; \
+	else \
+		$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...; \
+	fi
+
+# vulncheck fails on any known, reachable vulnerability in the module or its
+# dependencies. It is pinned and requires network access (the vulnerability
+# database), so it runs in `ci` rather than the offline-friendly `check` lane,
+# mirroring how the network-dependent gitleaks scan is kept separate.
+GOVULNCHECK_VERSION ?= v1.1.4
+vulncheck:
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 validate:
 	./scripts/validate-repo.sh
@@ -108,9 +128,9 @@ gitleaks:
 		{ echo "gitleaks is required for make gitleaks" >&2; exit 1; }
 	gitleaks detect --no-banner --redact --source .
 
-check: fmt-check validate docs-check spec-validate migration-check shellcheck test-scripts vet test test-race build diff-check
+check: fmt-check validate docs-check spec-validate migration-check shellcheck test-scripts vet lint test test-race build diff-check
 
-ci: check
+ci: check vulncheck
 
 clean:
 	rm -rf bin

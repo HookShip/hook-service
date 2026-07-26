@@ -19,8 +19,13 @@ Thank you for improving HookShip.
 Run:
 
 ```sh
-make check
+make check   # format, vet, lint (golangci-lint), tests, race, shell + repo checks
+make ci      # check plus govulncheck (the network-dependent vulnerability gate)
 ```
+
+`make lint` uses golangci-lint (v2) with the pinned set in `.golangci.yml`;
+install it locally for a fast inner loop (the target otherwise falls back to a
+version-pinned `go run`). See [`docs/development.md`](docs/development.md).
 
 Pull requests should explain the motivation, security implications, tests, and
 documentation impact. Avoid including webhook payloads, credentials, personal

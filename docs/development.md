@@ -5,6 +5,8 @@
 - Go 1.26.5 or newer
 - GNU Make or a compatible `make`
 - `shellcheck` for linting the operational shell scripts (`make shellcheck`)
+- `golangci-lint` (v2) for `make lint`; optional locally (the target falls back
+  to a version-pinned `go run`), required only for a fast inner loop
 - PostgreSQL 17+ only for durability integration tests
 - Docker only for container validation or a disposable local PostgreSQL
 - Python 3 with the pinned `requirements-spec.txt` packages when running the
@@ -18,15 +20,26 @@ make fmt-check    # fail if source is not formatted
 make test         # unit tests
 make test-race    # unit tests with the race detector
 make vet          # static checks from go vet
+make lint         # golangci-lint (pinned set in .golangci.yml)
+make vulncheck    # govulncheck against known, reachable vulnerabilities
 make build        # build bin/hookshipd and bin/hookshipctl
 make validate     # repository structure validation
 make spec-validate # validate v1 JSON, IDs, checksums, HMAC, and Ed25519
 make migration-check # validate immutable embedded migration checksums
 make shellcheck   # lint every shell script with `shellcheck -x`
 make test-scripts # hermetic tests for the operational recovery scripts
-make check        # all local validation (includes shellcheck + test-scripts)
+make check        # all local validation (includes vet, lint, shellcheck, test-scripts)
+make ci           # check + vulncheck (the network-dependent vulnerability gate)
 make gitleaks     # require and run the local gitleaks binary
 ```
+
+`make lint` runs golangci-lint with the pinned, high-signal linter set in
+`.golangci.yml` (errcheck, govet, ineffassign, staticcheck, unused, bodyclose,
+errorlint, misspell). Formatting stays owned by `gofmt` (`make fmt`), not
+golangci-lint. `make vulncheck` runs `govulncheck` (pinned) and needs network
+access for the vulnerability database, so it lives in `ci` alongside `check`
+rather than in the offline-friendly `check` lane, mirroring the gitleaks scan.
+CI runs both via `make ci`.
 
 The operational recovery scripts under `deploy/scripts/` are safety-critical, so
 `make check` lints them with `shellcheck` and runs hermetic shell tests
