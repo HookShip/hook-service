@@ -72,7 +72,10 @@ tag of its own.
 The listener is plaintext and loopback-safe by default. To expose the service
 off-host, choose exactly one of direct TLS (`HOOKSHIP_TLS_CERT` +
 `HOOKSHIP_TLS_KEY`) or a trusted proxy (`HOOKSHIP_PROXY_MODE=true` behind a
-reverse proxy or SSH tunnel). See [`../docs/operations.md`](../docs/operations.md).
+reverse proxy or SSH tunnel). Operator status (`/statusz`) and metrics
+(`/metrics`) are served on a separate, loopback-only operational listener
+(`HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS`, default `127.0.0.1:9090`) and never on
+the ingest listener. See [`../docs/operations.md`](../docs/operations.md).
 
 ## Operational runbooks
 

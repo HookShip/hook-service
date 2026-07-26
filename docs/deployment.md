@@ -79,6 +79,11 @@ See [`configuration.md`](configuration.md) and [`operations.md`](operations.md).
 curl -fsS http://127.0.0.1:8080/readyz     # expect status: ready
 hookshipctl diagnostics -url http://127.0.0.1:8080
 hookshipctl doctor                          # validate backend selection
+
+# Operator status and OpenMetrics live on the separate loopback operational
+# listener (default 127.0.0.1:9090), never on the ingest listener:
+curl -fsS http://127.0.0.1:9090/statusz
+curl -fsS http://127.0.0.1:9090/metrics
 ```
 
 Over SSH from a workstation, tunnel the loopback listener:

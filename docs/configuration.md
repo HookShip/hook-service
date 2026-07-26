@@ -6,6 +6,7 @@ values before opening a listener.
 | Variable | Default | Constraint |
 | --- | --- | --- |
 | `HOOKSHIP_LISTEN_ADDRESS` | `127.0.0.1:8080` | Valid `host:port`; port `0` is allowed for ephemeral evaluation |
+| `HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS` | `127.0.0.1:9090` | Loopback `host:port` for the operational surface (`/statusz`, `/metrics`); fails closed on any non-loopback bind and must differ from the ingest listener |
 | `HOOKSHIP_SHUTDOWN_TIMEOUT` | `10s` | Positive Go duration, at most `5m` |
 | `HOOKSHIP_READ_HEADER_TIMEOUT` | `5s` | Positive Go duration, at most `1m` |
 | `HOOKSHIP_READ_TIMEOUT` | `10s` | Positive Go duration, at most `10m` |
@@ -15,6 +16,33 @@ values before opening a listener.
 | `HOOKSHIP_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error` |
 
 Durations use Go syntax such as `500ms`, `10s`, or `2m`.
+
+## Operational listener
+
+The operator surface — the payload-free `/statusz` snapshot and the OpenMetrics
+`/metrics` endpoint — is served on a **separate listener** bound by
+`HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS` (default `127.0.0.1:9090`), never on the
+ingest listener. This keeps operational information (build version, backend and
+key-provider selection, delivery counters) off any externally exposed producer
+surface.
+
+The operational listener always terminates plaintext and is **loopback-only**:
+configuration fails closed if `HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS` resolves to
+a non-loopback address. Scrape or probe it locally, or reach it over an SSH
+tunnel or a scrape agent running on the host. `/healthz` and `/readyz` are served
+on **both** listeners, so load balancers and `hookshipctl diagnostics` continue
+to probe them on the ingest listener unchanged.
+
+The single-process `all` mode binds one operational listener, so the default is
+correct out of the box. When you run `api` and `worker` as **separate processes
+on the same host**, each process binds its own operational listener, so they
+must be given **distinct** `HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS` values (and,
+likewise, distinct `HOOKSHIP_LISTEN_ADDRESS` values); otherwise the second
+process to start fails fast with an address-in-use error that names the fix.
+There is no shared default that silently works for two same-host processes.
+
+See [`operations.md`](operations.md) for the endpoint reference.
+
 
 ## Runtime configuration
 
@@ -42,7 +70,7 @@ combinations fail with a stable reason code (see
 | `HOOKSHIP_METADATA_SINK_TOKEN` | empty | Bearer token for the metadata sink |
 | `HOOKSHIP_SINK_URL` | loopback default | Delivery target for the default evaluation assignment |
 | `HOOKSHIP_PROXY_MODE` | `false` | Assert a trusted boundary terminates external exposure |
-| `HOOKSHIP_TLS_CERT` / `HOOKSHIP_TLS_KEY` | empty | Direct HTTPS termination by the process. Both must be set together (a partial pair is rejected) and the pair is loaded at startup (a bad pair fails fast). When set, `/healthz`, `/readyz`, and ingest are served over HTTPS only. |
+| `HOOKSHIP_TLS_CERT` / `HOOKSHIP_TLS_KEY` | empty | Direct HTTPS termination by the process. Both must be set together (a partial pair is rejected) and the pair is loaded at startup (a bad pair fails fast). When set, the ingest listener (`/healthz`, `/readyz`, and ingest) is served over HTTPS only. The loopback operational listener stays plaintext. |
 | `HOOKSHIP_DELIVERY_ALLOW_LOOPBACK` | `false` | Permit delivery to loopback sinks (reduces SSRF protection) |
 | `HOOKSHIP_DELIVERY_ALLOW_PRIVATE` | `false` | Permit delivery to private/container sinks (reduces SSRF protection) |
 | `HOOKSHIP_DELIVERY_ALLOW_PLAINTEXT` | `false` | Permit plaintext `http` delivery |

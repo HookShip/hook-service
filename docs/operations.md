@@ -5,11 +5,19 @@
 `GET` and `HEAD` are accepted on both operational endpoints. Responses are
 JSON, non-cacheable, and include `status`, `service`, and `version`.
 
-| Endpoint | Ready state | Unavailable state |
-| --- | --- | --- |
-| `/healthz` | `200`, status `ok` | Reserved for inability to serve the process probe |
-| `/readyz` | `200`, status `ready` | `503`, status `not_ready` |
-| `/statusz` | `200`, payload-free operator status JSON | — |
+`/healthz` and `/readyz` are served on **both** the ingest listener
+(`HOOKSHIP_LISTEN_ADDRESS`) and the separate loopback operational listener
+(`HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS`, default `127.0.0.1:9090`). The
+operational surface — `/statusz` and `/metrics` — is served **only** on the
+operational listener, never on the (potentially externally exposed) ingest
+listener.
+
+| Endpoint | Listener | Ready state | Unavailable state |
+| --- | --- | --- | --- |
+| `/healthz` | ingest + operational | `200`, status `ok` | Reserved for inability to serve the process probe |
+| `/readyz` | ingest + operational | `200`, status `ready` | `503`, status `not_ready` |
+| `/statusz` | operational only | `200`, payload-free operator status JSON | — |
+| `/metrics` | operational only | `200`, OpenMetrics exposition | — |
 
 These endpoints report process state only. They do not assert successful
 webhook delivery, durable storage, external dependency health, availability,
@@ -22,6 +30,19 @@ gauges (delivery outcomes, circuit-open skips, rate-limit/concurrency deferrals,
 an in-flight gauge, and retention counts). It never contains request bodies,
 payloads, secrets, or identifiers. Delivery and retention metrics are recorded
 by the `worker`/`all` process; the `api` process reports its own registry.
+
+## Metrics
+
+`/metrics` on the operational listener serves the same payload-free counters and
+gauges in the OpenMetrics text exposition format (a superset of the Prometheus
+text format), so a standard scraper can consume them. Every series is namespaced
+with the `hookship_` prefix; counters carry the `_total` suffix. Because the
+operational listener is loopback-only, scrape it with an agent running on the
+host (or over an SSH tunnel); it is never exposed off-box.
+
+```sh
+curl -fsS http://127.0.0.1:9090/metrics
+```
 
 ## Retention and cleanup
 
@@ -64,13 +85,32 @@ hookshipd worker   # dispatch, retry, DLQ, and metadata outbox
 hookshipd all      # single-process developer/VM mode
 ```
 
+`all` (the single-VM systemd deployment) runs one process, so the default
+listeners are correct with no extra configuration. If you split `api` and
+`worker` into **two processes on the same host**, give each its own listener
+addresses — both the ingest listener and the loopback operational listener
+default to the same ports, so the second process to start otherwise fails fast:
+
+```sh
+# api process
+HOOKSHIP_LISTEN_ADDRESS=127.0.0.1:8080 \
+HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS=127.0.0.1:9090 hookshipd api
+
+# worker process (distinct ports on the same host)
+HOOKSHIP_LISTEN_ADDRESS=127.0.0.1:8081 \
+HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS=127.0.0.1:9091 hookshipd worker
+```
+
+The address-in-use error names the fix; there is no shared default that silently
+works for two same-host processes.
+
 Operator commands:
 
 ```sh
 hookshipctl version            # print CLI/build version (text or -output=json)
 hookshipctl migrate            # apply PostgreSQL durability migrations
 hookshipctl doctor             # validate configuration and backend selection
-hookshipctl diagnostics        # read a running daemon's /healthz, /readyz, /statusz
+hookshipctl diagnostics        # read a running daemon's /healthz and /readyz
 hookshipctl backend list       # list profiles and capabilities
 hookshipctl backend describe postgres
 hookshipctl backend validate -config hookship.yaml
@@ -96,9 +136,10 @@ For a non-loopback listener choose exactly one:
 
 - Set `HOOKSHIP_TLS_CERT` and `HOOKSHIP_TLS_KEY` (both together) so the process
   terminates HTTPS directly. The pair is loaded at startup and a missing or
-  partial pair fails fast. All endpoints — including `/healthz`, `/readyz`, and
-  the container healthcheck — are then HTTPS only, so `hookshipctl diagnostics`
-  must be pointed at an `https://` URL.
+  partial pair fails fast. The ingest listener — including `/healthz`, `/readyz`,
+  and the container healthcheck — is then HTTPS only, so `hookshipctl
+  diagnostics` must be pointed at an `https://` URL. The loopback operational
+  listener (`/statusz`, `/metrics`) stays plaintext.
 - Set `HOOKSHIP_PROXY_MODE=true` when TLS is terminated upstream (loopback-only
   Docker publish, SSH tunnel, or reverse proxy). The process serves plaintext
   behind that operator-asserted boundary.

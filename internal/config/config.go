@@ -12,6 +12,7 @@ import (
 
 const (
 	defaultListenAddress   = "127.0.0.1:8080"
+	defaultOperationalAddr = "127.0.0.1:9090"
 	defaultShutdownTimeout = 10 * time.Second
 	maximumShutdownTimeout = 5 * time.Minute
 	defaultReadHeader      = 5 * time.Second
@@ -27,6 +28,7 @@ const (
 	maximumMaxHeaderBytes  = 1 << 20
 	defaultLogLevel        = "info"
 	envListenAddress       = "HOOKSHIP_LISTEN_ADDRESS"
+	envOperationalAddress  = "HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS"
 	envShutdownTimeout     = "HOOKSHIP_SHUTDOWN_TIMEOUT"
 	envReadHeaderTimeout   = "HOOKSHIP_READ_HEADER_TIMEOUT"
 	envReadTimeout         = "HOOKSHIP_READ_TIMEOUT"
@@ -39,14 +41,20 @@ const (
 // Config contains the bounded settings needed by the HTTP process and the
 // selected native runtime profile.
 type Config struct {
-	ListenAddress   string
-	ShutdownTimeout time.Duration
-	ReadHeader      time.Duration
-	ReadTimeout     time.Duration
-	WriteTimeout    time.Duration
-	IdleTimeout     time.Duration
-	MaxHeaderBytes  int
-	LogLevel        string
+	ListenAddress string
+	// OperationalAddress binds the separate, loopback-only operational listener
+	// that serves the payload-free `/statusz` operator snapshot and the
+	// OpenMetrics `/metrics` endpoint (plus `/healthz` and `/readyz` for local
+	// probing). Keeping it off the ingest listener prevents operational
+	// information disclosure on any externally exposed producer surface.
+	OperationalAddress string
+	ShutdownTimeout    time.Duration
+	ReadHeader         time.Duration
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	IdleTimeout        time.Duration
+	MaxHeaderBytes     int
+	LogLevel           string
 
 	// Runtime is the selected backend profile and its bounded operational
 	// settings. It is empty until an explicit backend is configured.
@@ -56,14 +64,15 @@ type Config struct {
 // Default returns a configuration that only listens on the local loopback.
 func Default() Config {
 	return Config{
-		ListenAddress:   defaultListenAddress,
-		ShutdownTimeout: defaultShutdownTimeout,
-		ReadHeader:      defaultReadHeader,
-		ReadTimeout:     defaultReadTimeout,
-		WriteTimeout:    defaultWriteTimeout,
-		IdleTimeout:     defaultIdleTimeout,
-		MaxHeaderBytes:  defaultMaxHeaderBytes,
-		LogLevel:        defaultLogLevel,
+		ListenAddress:      defaultListenAddress,
+		OperationalAddress: defaultOperationalAddr,
+		ShutdownTimeout:    defaultShutdownTimeout,
+		ReadHeader:         defaultReadHeader,
+		ReadTimeout:        defaultReadTimeout,
+		WriteTimeout:       defaultWriteTimeout,
+		IdleTimeout:        defaultIdleTimeout,
+		MaxHeaderBytes:     defaultMaxHeaderBytes,
+		LogLevel:           defaultLogLevel,
 	}
 }
 
@@ -76,6 +85,9 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	cfg := Default()
 	if value := strings.TrimSpace(getenv(envListenAddress)); value != "" {
 		cfg.ListenAddress = value
+	}
+	if value := strings.TrimSpace(getenv(envOperationalAddress)); value != "" {
+		cfg.OperationalAddress = value
 	}
 	if err := durationFromEnv(getenv, envShutdownTimeout, &cfg.ShutdownTimeout); err != nil {
 		return Config{}, err
@@ -127,6 +139,27 @@ func (c Config) Validate() error {
 	portNumber, err := strconv.Atoi(port)
 	if err != nil || portNumber < 0 || portNumber > 65535 {
 		return fmt.Errorf("%s port must be between 0 and 65535", envListenAddress)
+	}
+
+	// The operational listener carries the payload-free `/statusz` snapshot and
+	// the `/metrics` endpoint. It must never be exposed off-box, so it fails
+	// closed on any non-loopback bind rather than relying on TLS or a proxy.
+	opHost, opPort, err := net.SplitHostPort(c.OperationalAddress)
+	if err != nil {
+		return fmt.Errorf("%s must be a host:port address: %w", envOperationalAddress, err)
+	}
+	if strings.ContainsAny(opHost, "\r\n") {
+		return fmt.Errorf("%s contains invalid characters", envOperationalAddress)
+	}
+	opPortNumber, err := strconv.Atoi(opPort)
+	if err != nil || opPortNumber < 0 || opPortNumber > 65535 {
+		return fmt.Errorf("%s port must be between 0 and 65535", envOperationalAddress)
+	}
+	if !isLoopbackBind(c.OperationalAddress) {
+		return fmt.Errorf("%s must bind a loopback address (got %q); the operational surface is never exposed off-box", envOperationalAddress, c.OperationalAddress)
+	}
+	if c.OperationalAddress == c.ListenAddress && opPortNumber != 0 {
+		return fmt.Errorf("%s must differ from %s", envOperationalAddress, envListenAddress)
 	}
 
 	durations := []struct {

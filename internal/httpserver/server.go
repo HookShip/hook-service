@@ -6,12 +6,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/hookship/hook-service/internal/buildinfo"
 	"github.com/hookship/hook-service/internal/config"
@@ -19,12 +21,14 @@ import (
 
 // Server is the bounded operational HTTP process.
 type Server struct {
-	config     config.Config
-	logger     *slog.Logger
-	readiness  *Readiness
-	httpServer *http.Server
-	tlsEnabled bool
-	boundAddr  atomic.Pointer[string]
+	config        config.Config
+	listenAddress string
+	logger        *slog.Logger
+	readiness     *Readiness
+	httpServer    *http.Server
+	tlsEnabled    bool
+	bindHint      string
+	boundAddr     atomic.Pointer[string]
 }
 
 // Options configures optional profile routes and readiness behavior.
@@ -39,6 +43,21 @@ type Options struct {
 	// /statusz (build info, backend selection, and runtime metrics). It must
 	// never return request bodies, payloads, secrets, or identifiers.
 	StatusProvider func() any
+	// MetricsWriter, when set, serves the OpenMetrics exposition on /metrics.
+	// It writes payload-free counters and gauges only.
+	MetricsWriter func(io.Writer) error
+	// Address, when non-empty, overrides cfg.ListenAddress for this server. It
+	// binds the separate loopback operational listener without disturbing the
+	// validated ingest listen address.
+	Address string
+	// ForcePlaintext disables direct TLS termination for this server even when a
+	// TLS certificate pair is configured. The loopback operational listener is
+	// always plaintext.
+	ForcePlaintext bool
+	// BindHint, when set, is appended to a "listen" error if the address is
+	// already in use, so an operator sees the likely cause and fix (for example,
+	// two same-host processes sharing an operational address).
+	BindHint string
 }
 
 // New constructs a validated health-only server.
@@ -56,13 +75,19 @@ func NewWithOptions(cfg config.Config, logger *slog.Logger, info buildinfo.Info,
 	}
 
 	readiness := &Readiness{}
+	listenAddress := cfg.ListenAddress
+	if strings.TrimSpace(options.Address) != "" {
+		listenAddress = options.Address
+	}
 	server := &Server{
-		config:    cfg,
-		logger:    logger,
-		readiness: readiness,
+		config:        cfg,
+		listenAddress: listenAddress,
+		logger:        logger,
+		readiness:     readiness,
+		bindHint:      options.BindHint,
 	}
 	server.httpServer = &http.Server{
-		Addr:              cfg.ListenAddress,
+		Addr:              listenAddress,
 		Handler:           newHandlerWithRoutes(readiness, info, options),
 		ReadHeaderTimeout: cfg.ReadHeader,
 		ReadTimeout:       cfg.ReadTimeout,
@@ -74,8 +99,9 @@ func NewWithOptions(cfg config.Config, logger *slog.Logger, info buildinfo.Info,
 
 	// Direct TLS termination: load and validate the certificate/key pair now so
 	// a misconfiguration fails fast at construction rather than serving
-	// plaintext. Configuration validation already rejects a partial pair.
-	if cfg.Runtime.HasTLS() {
+	// plaintext. Configuration validation already rejects a partial pair. The
+	// loopback operational listener opts out via ForcePlaintext.
+	if !options.ForcePlaintext && cfg.Runtime.HasTLS() {
 		certificate, err := tls.LoadX509KeyPair(cfg.Runtime.Transport.TLSCertFile, cfg.Runtime.Transport.TLSKeyFile)
 		if err != nil {
 			return nil, fmt.Errorf("load TLS certificate/key: %w", err)
@@ -104,9 +130,12 @@ func (s *Server) Addr() string {
 
 // Run listens until the context is canceled or the HTTP server fails.
 func (s *Server) Run(ctx context.Context) error {
-	listener, err := net.Listen("tcp", s.config.ListenAddress)
+	listener, err := net.Listen("tcp", s.listenAddress)
 	if err != nil {
-		return fmt.Errorf("listen on %s: %w", s.config.ListenAddress, err)
+		if s.bindHint != "" && errors.Is(err, syscall.EADDRINUSE) {
+			return fmt.Errorf("listen on %s: %w (%s)", s.listenAddress, err, s.bindHint)
+		}
+		return fmt.Errorf("listen on %s: %w", s.listenAddress, err)
 	}
 
 	serveErrors := make(chan error, 1)

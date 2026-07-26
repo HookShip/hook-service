@@ -14,9 +14,9 @@ dead-letter queue, payload-free status, and selectable native backend profiles.
 ```text
 hookshipctl ──HTTP diagnostics──> hookshipd
                                       │
-                                      ├── /healthz
-                                      ├── /readyz
-                                      └── /statusz
+                                      ├── ingest listener:      /healthz, /readyz
+                                      └── operational listener: /healthz, /readyz,
+                                          (loopback-only)       /statusz, /metrics
 
 producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one PostgreSQL 17+ cell
                                 hookshipd (worker) ──┤   ├── idempotency + immutable ingest
@@ -67,8 +67,9 @@ producer ──event_ingest HTTP──> hookshipd (api) ──pgx──> one Pos
   handlers and delivery loop against the ports.
 - `internal/ratelimit`, `internal/maintenance`, and `internal/metrics` provide
   per-assignment/per-endpoint limits with bounded backpressure, the retention
-  and cleanup workers, and the payload-free operator metrics exposed on
-  `/statusz`.
+  and cleanup workers, and the payload-free operator metrics exposed on the
+  loopback operational listener as the `/statusz` snapshot and the `/metrics`
+  OpenMetrics endpoint.
 - `cmd/hookshipd` runs the `api`, `worker`, and `all` modes; `cmd/hookshipctl`
   adds `migrate`, `doctor`, and `backend` operator commands.
 

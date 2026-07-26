@@ -64,12 +64,22 @@ throughput, or service-level claims, and it has not been independently audited.
 - Adoption of the organization's reusable Go-validation and secret-scan
   workflows alongside the existing PostgreSQL/Redis/MinIO and container
   integration jobs.
+- OpenMetrics `/metrics` endpoint on the operational listener, exposing the
+  existing payload-free counters and gauges (namespaced `hookship_`) in the
+  standard text exposition format for a Prometheus/OpenMetrics scraper.
 - Pinned `golangci-lint` (v2) configuration and gate (`.golangci.yml`,
   `make lint`, wired into `make check`) layering error-handling and correctness
   linters on top of `go vet`; formatting stays owned by `gofmt`.
 
 ### Changed
 
+- Operator status (`/statusz`) and the new metrics endpoint (`/metrics`) are now
+  served on a separate, loopback-only operational listener
+  (`HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS`, default `127.0.0.1:9090`) instead of
+  the ingest listener, so operational information is never exposed on an
+  externally bound producer surface. A non-loopback operational bind fails
+  closed. `/healthz` and `/readyz` remain on both listeners, so load balancers
+  and `hookshipctl diagnostics` are unaffected.
 - Bumped `golang.org/x/text` to v0.39.0 to clear the reachable GO-2026-5970
   advisory (infinite loop on invalid input), and added a pinned `govulncheck`
   gate (`make vulncheck`, run in `make ci`) so future reachable vulnerabilities
@@ -93,5 +103,14 @@ throughput, or service-level claims, and it has not been independently audited.
   exact-value allowlist entries for the well-known fabricated test strings that
   remain in earlier git history, so a full-history scan stays green without a
   history rewrite while any new secret is still caught.
+
+### Fixed
+
+- Running `api` and `worker` as separate processes on one host now fails fast
+  with an actionable error when they share an operational address: the
+  operational listener's address-in-use error names the required distinct
+  `HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS`. The split same-host topology requirement
+  (distinct operational and ingest listener addresses) is documented in the
+  configuration and operations guides.
 
 [Unreleased]: https://github.com/hookship/hook-service/commits/main

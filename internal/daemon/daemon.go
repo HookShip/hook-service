@@ -72,8 +72,18 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 	life := newLifecycle(runCtx, cancel, logger)
 	life.addCloser(built.Close)
 
+	// The operational listener is a separate, loopback-only surface that carries
+	// the payload-free /statusz snapshot and the /metrics OpenMetrics endpoint,
+	// keeping them off any externally exposed ingest listener. Configuration
+	// validation fails closed on a non-loopback operational bind.
+	operational, err := buildOperationalServer(cfg, logger, info, built, durability, status, registry)
+	if err != nil {
+		return life.finish(err)
+	}
+	life.launchCritical("operational server", operational.Run)
+
 	if mode == ModeAPI || mode == ModeAll {
-		server, err := buildServer(cfg, logger, info, built, ids, clock, durability, status)
+		server, err := buildServer(cfg, logger, info, built, ids, clock, durability)
 		if err != nil {
 			return life.finish(err)
 		}
@@ -82,7 +92,6 @@ func Run(ctx context.Context, mode Mode, cfg config.Config, logger *slog.Logger,
 		server, err := httpserver.NewWithOptions(cfg, logger, info, httpserver.Options{
 			Durability:     durability,
 			ReadinessProbe: backendProbe(built),
-			StatusProvider: status,
 		})
 		if err != nil {
 			return life.finish(err)
@@ -124,7 +133,6 @@ func buildServer(
 	ids runtime.IDSource,
 	clock runtime.Clock,
 	durability string,
-	status func() any,
 ) (*httpserver.Server, error) {
 	handler, err := ingest.New(ingest.Options{
 		Backend:                built,
@@ -142,7 +150,30 @@ func buildServer(
 		Register:       handler.Register,
 		ReadinessProbe: backendProbe(built),
 		Durability:     durability,
+	})
+}
+
+// buildOperationalServer constructs the separate loopback operational listener.
+// It serves /healthz and /readyz plus the payload-free /statusz snapshot and the
+// /metrics OpenMetrics endpoint, and always terminates plaintext (loopback).
+func buildOperationalServer(
+	cfg config.Config,
+	logger *slog.Logger,
+	info buildinfo.Info,
+	built runtime.Backend,
+	durability string,
+	status func() any,
+	registry *metrics.Registry,
+) (*httpserver.Server, error) {
+	return httpserver.NewWithOptions(cfg, logger, info, httpserver.Options{
+		Address:        cfg.OperationalAddress,
+		ForcePlaintext: true,
+		ReadinessProbe: backendProbe(built),
+		Durability:     durability,
 		StatusProvider: status,
+		MetricsWriter:  registry.WriteOpenMetrics,
+		BindHint: "operational listener address in use; when running api and worker " +
+			"as separate processes on one host, set a distinct HOOKSHIP_OPERATIONAL_LISTEN_ADDRESS for each",
 	})
 }
 

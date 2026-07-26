@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sync/atomic"
 
@@ -47,10 +48,34 @@ func newHandlerWithRoutes(readiness *Readiness, info buildinfo.Info, options Opt
 	if options.StatusProvider != nil {
 		mux.Handle("/statusz", statuszHandler(options.StatusProvider))
 	}
+	if options.MetricsWriter != nil {
+		mux.Handle("/metrics", metricsHandler(options.MetricsWriter))
+	}
 	if options.Register != nil {
 		options.Register(mux)
 	}
 	return mux
+}
+
+// metricsHandler serves the OpenMetrics exposition produced by writer. It
+// accepts only GET and HEAD and never caches, matching the other operational
+// probes. The writer emits payload-free counters and gauges only.
+func metricsHandler(writer func(io.Writer) error) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_ = writer(w)
+	})
 }
 
 // statuszHandler serves payload-free operator status JSON. It accepts only GET

@@ -4,9 +4,10 @@ Symptom-first diagnosis for a single-VM deployment. Start with the probes and
 logs, then match a symptom below.
 
 ```sh
-curl -fsS http://127.0.0.1:8080/healthz   # process is serving
+curl -fsS http://127.0.0.1:8080/healthz   # process is serving (ingest listener)
 curl -fsS http://127.0.0.1:8080/readyz    # backend + migrations healthy
-curl -fsS http://127.0.0.1:8080/statusz   # payload-free operator metrics
+curl -fsS http://127.0.0.1:9090/statusz   # payload-free operator status (operational listener)
+curl -fsS http://127.0.0.1:9090/metrics   # OpenMetrics exposition (operational listener)
 journalctl -u hookshipd -n 200 --no-pager
 hookshipctl doctor                        # validate backend selection
 ```
