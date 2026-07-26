@@ -22,7 +22,7 @@ assignments:
     endpoint:
       id: ep_orders
       url: https://sink.example/hooks/orders
-      signingSecret: whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+      signingSecret: hookship-assignmentconfig-signing-key
       configGeneration: 7
       maxAttempts: 10
       timeoutSeconds: 15

@@ -12,10 +12,12 @@ import (
 // material and authenticates only loopback evaluation assignments.
 const evaluationHMACSecretHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
-// evaluationSigningSecret is a fixed, non-production Standard Webhooks secret for
-// the evaluation endpoint. It is deterministic so demos and tests can verify the
-// outbound signature.
-const evaluationSigningSecret = "whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA="
+// evaluationSigningSecret is a fixed, clearly non-production endpoint signing
+// key for the evaluation endpoint. It is a plain, self-describing string used
+// directly as the HMAC key (no provider "whsec_" prefix, so it is not
+// secret-shaped) and is deterministic so demos and tests can verify the
+// outbound signature. It authenticates only loopback evaluation assignments.
+const evaluationSigningSecret = "hookship-evaluation-endpoint-signing-key"
 
 // DefaultEvaluationAssignment builds the well-known loopback evaluation
 // assignment that delivers to the supplied local sink URL. It never appears in a

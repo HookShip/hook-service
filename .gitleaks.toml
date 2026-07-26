@@ -1,27 +1,25 @@
 # gitleaks configuration for hook-service.
 #
-# It extends the upstream default ruleset and allowlists only the repository's
-# documented, public, non-production test material: the Standard Webhooks
-# signing test vectors and the well-known evaluation signing secret used by the
-# assignment defaults, the assignment-config tests, and the local evaluation
-# examples/Compose profiles. These are intentionally committed test fixtures and
-# are never production credentials.
+# The working tree contains no provider-shaped signing secrets: the evaluation
+# default, the assignment-config test fixtures, the local evaluation
+# examples/Compose profiles, and the Standard Webhooks signing vectors all use
+# plain, self-describing, non-"whsec_" HMAC keys. The whsec_ base64
+# decode path is exercised by unit tests that build the secret at runtime.
+#
+# The two exact-value allowlist entries below are intentionally narrow: they
+# match only the two well-known, fabricated test strings that appear in earlier
+# git history (before they were replaced), so a full-history scan
+# (`gitleaks detect` over every commit, as CI runs it) stays green without a
+# history rewrite. They are documented, never-production test material and match
+# nothing in the current tree. No whole-file path is allowlisted, so any new
+# secret added to any file is still caught.
 title = "hook-service gitleaks configuration"
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Public, documented evaluation and specification test material only."
-paths = [
-  '''internal/signing/testdata/standard-webhooks-vectors\.json''',
-  '''internal/assignmentconfig/defaults\.go''',
-  '''internal/assignmentconfig/assignmentconfig_test\.go''',
-  '''examples/compose/assignments\.yaml''',
-  '''examples/local-sink/main\.go''',
-]
-# The well-known evaluation Standard Webhooks symmetric secrets (whsec_ base64)
-# are documented test material shared across the fixtures above.
+description = "Exact, well-known non-production test strings retained only in earlier git history."
 regexes = [
   '''whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=''',
   '''whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA=''',

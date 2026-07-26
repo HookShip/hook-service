@@ -1,15 +1,15 @@
 {
   "schemeVersion": "1",
   "algorithm": "standard-webhooks-hmac-sha256",
-  "note": "Deterministic Standard Webhooks-compatible outbound signing vectors. Secrets here are obvious low-entropy test material and MUST NOT be used outside tests.",
+  "note": "Deterministic Standard Webhooks-compatible outbound signing vectors. Secrets here are obvious, low-entropy, clearly non-provider test material and MUST NOT be used outside tests. The whsec_ base64 secret-decoding path is exercised separately by unit tests that build the secret at runtime (see signing_test.go), so no provider-shaped secret literal is committed here.",
   "positive": [
     {
-      "name": "whsec base64 secret over exact JSON body",
-      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "name": "documented low-entropy secret over exact JSON body",
+      "secret": "hookship-signing-vector-secret-A",
       "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
       "timestamp": 1700000000,
       "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
-      "expectedSignature": "v1,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+      "expectedSignature": "v1,rzl2xpTyPubgrB54QSX+ZgjAgB8Q2FL0Kty9s58cgok="
     },
     {
       "name": "raw (non-whsec) secret",
@@ -21,37 +21,37 @@
     },
     {
       "name": "empty payload",
-      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "secret": "hookship-signing-vector-secret-A",
       "messageId": "msg_empty000000000000000000B",
       "timestamp": 1710000123,
       "payloadBase64": "",
-      "expectedSignature": "v1,XN0LQNeyPyS+uyzq0eoUziMx3lggDyDlIy4e2JQ8hqc="
+      "expectedSignature": "v1,mlVneBwYDxMQntMSURiWKNm8leT0rrGHHWYHoSNOqY8="
     }
   ],
   "negative": [
     {
       "name": "altered leading signature byte",
-      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "secret": "hookship-signing-vector-secret-A",
       "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
       "timestamp": 1700000000,
       "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
-      "signatureHeader": "v1,T7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+      "signatureHeader": "v1,szl2xpTyPubgrB54QSX+ZgjAgB8Q2FL0Kty9s58cgok="
     },
     {
       "name": "tampered payload",
-      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "secret": "hookship-signing-vector-secret-A",
       "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
       "timestamp": 1700000000,
       "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6OTkuOTl9",
-      "signatureHeader": "v1,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+      "signatureHeader": "v1,rzl2xpTyPubgrB54QSX+ZgjAgB8Q2FL0Kty9s58cgok="
     },
     {
       "name": "wrong scheme version",
-      "secret": "whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+      "secret": "hookship-signing-vector-secret-A",
       "messageId": "msg_01J4M6Y7N8P9Q0R1S2T3U4V5W6",
       "timestamp": 1700000000,
       "payloadBase64": "eyJvcmRlcl9pZCI6IjEyMyIsImFtb3VudCI6MTIuNTB9",
-      "signatureHeader": "v2,S7IjogJIWwf/g5HHjQ8WQeU7THf0+SdAC6CSPxdAc7U="
+      "signatureHeader": "v2,rzl2xpTyPubgrB54QSX+ZgjAgB8Q2FL0Kty9s58cgok="
     }
   ]
 }

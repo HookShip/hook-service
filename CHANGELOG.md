@@ -78,4 +78,20 @@ throughput, or service-level claims, and it has not been independently audited.
   deployment surface, removing pre-implementation scope language that predated
   the delivery runtime.
 
+### Security
+
+- Replaced the deterministic, `whsec_`-shaped Standard Webhooks test secrets in
+  the evaluation default (`internal/assignmentconfig/defaults.go`), the
+  assignment-config and worker tests, the local-sink and Compose examples, and
+  the signing conformance vectors with plain, self-describing, non-provider HMAC
+  keys, so no committed fixture or default is shaped like a provider signing
+  secret. The `whsec_` base64 decode path is now covered by a unit test that
+  builds the secret at runtime. Signing semantics are unchanged (recomputed
+  golden signatures verify identically).
+- Tightened `.gitleaks.toml`: removed the broad whole-file path allowlists (which
+  could have hidden a real secret added to those files) and kept only two
+  exact-value allowlist entries for the well-known fabricated test strings that
+  remain in earlier git history, so a full-history scan stays green without a
+  history rewrite while any new secret is still caught.
+
 [Unreleased]: https://github.com/hookship/hook-service/commits/main

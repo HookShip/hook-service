@@ -205,8 +205,8 @@ func TestWorkerTerminalOn4xxDoesNotRetry(t *testing.T) {
 }
 
 func evaluationSigningSecret() string {
-	// Mirror the fixed evaluation signing secret used by the default assignment.
-	return "whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA="
+	// Mirror the fixed evaluation signing key used by the default assignment.
+	return "hookship-evaluation-endpoint-signing-key"
 }
 
 func readFull(r *http.Request, buffer []byte) (int, error) {

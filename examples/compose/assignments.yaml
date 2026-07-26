@@ -18,7 +18,7 @@ assignments:
     endpoint:
       id: ep_evaluation_sink
       url: http://local-sink:9099/sink
-      signingSecret: whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA=
+      signingSecret: hookship-evaluation-endpoint-signing-key
       configGeneration: 1
       maxAttempts: 6
       timeoutSeconds: 10

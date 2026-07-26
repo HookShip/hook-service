@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -20,9 +19,11 @@ import (
 	"time"
 )
 
-// evaluationSigningSecret mirrors the fixed evaluation endpoint secret used by
-// the default evaluation assignment. It is public test material.
-const evaluationSigningSecret = "whsec_ZXZhbHVhdGlvbi1zaWduaW5nLXNlY3JldC0wMDAxAAA="
+// evaluationSigningSecret mirrors the fixed evaluation endpoint signing key used
+// by the default evaluation assignment. It is a plain, clearly non-provider
+// string (no "whsec_" prefix) used directly as the HMAC key. Public test
+// material only.
+const evaluationSigningSecret = "hookship-evaluation-endpoint-signing-key"
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9099", "listen address")
@@ -90,11 +91,14 @@ func verify(id, ts, header string, body []byte) bool {
 	return false
 }
 
+// decodeSecret resolves the raw HMAC key from a Standard Webhooks secret,
+// mirroring the production signer: a "whsec_" prefix selects base64 decoding of
+// the remainder; otherwise the raw bytes are the key.
 func decodeSecret(secret string) ([]byte, error) {
 	if strings.HasPrefix(secret, "whsec_") {
 		return base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
 	}
-	return []byte(secret), fmt.Errorf("unexpected secret format")
+	return []byte(secret), nil
 }
 
 func envInt(name string, fallback int) int {

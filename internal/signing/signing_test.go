@@ -115,7 +115,7 @@ func TestVerifyRejectsNegativeVectors(t *testing.T) {
 }
 
 func TestVerifyEnforcesTimestampTolerance(t *testing.T) {
-	signer, err := signing.NewSigner([]byte("whsec_AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="))
+	signer, err := signing.NewSigner([]byte("hookship-tolerance-test-signing-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +151,48 @@ func TestNewSignerRejectsEmptySecret(t *testing.T) {
 	}
 	if _, err := signing.NewSigner([]byte("whsec_")); err == nil {
 		t.Fatal("expected empty decoded whsec secret rejection")
+	}
+}
+
+// TestWhsecDecodePathMatchesRawKey exercises the Standard Webhooks "whsec_"
+// base64 secret-decoding branch of DecodeSecret/NewSigner without committing a
+// provider-shaped secret literal: the whsec_ secret is built at runtime from a
+// raw key, and it must produce a signer byte-identical to one built from the raw
+// key directly. This keeps the decode-path coverage while the on-disk fixtures
+// stay clearly non-provider.
+func TestWhsecDecodePathMatchesRawKey(t *testing.T) {
+	rawKey := []byte("hookship-whsec-decode-path-key-01")
+	whsecSecret := signing.SecretPrefix + base64.StdEncoding.EncodeToString(rawKey)
+
+	// DecodeSecret strips the prefix and base64-decodes back to the raw key.
+	decoded, err := signing.DecodeSecret([]byte(whsecSecret))
+	if err != nil {
+		t.Fatalf("DecodeSecret(whsec) error = %v", err)
+	}
+	if string(decoded) != string(rawKey) {
+		t.Fatalf("DecodeSecret(whsec) = %q, want the raw key", decoded)
+	}
+
+	fromWhsec, err := signing.NewSigner([]byte(whsecSecret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromRaw, err := signing.NewSigner(rawKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Unix(1700000000, 0)
+	payload := []byte(`{"whsec":"decode"}`)
+	sigWhsec, err := fromWhsec.Sign("msg_whsec_decode_00000000000", ts, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigRaw, err := fromRaw.Sign("msg_whsec_decode_00000000000", ts, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sigWhsec.Value != sigRaw.Value {
+		t.Fatalf("whsec-decoded and raw keys disagree: %q != %q", sigWhsec.Value, sigRaw.Value)
 	}
 }
 

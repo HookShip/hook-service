@@ -25,7 +25,7 @@ var crossCheckGolden = struct {
 }{
 	id:    "msg_crosscheck_1",
 	ts:    "1700000000",
-	value: "v1,S/slPRj1KzzAiOrG+lgTGsnqUMt76RQN0dE5DwszNxE=",
+	value: "v1,mAwij8mOSXi0OEjHNzbdWOVJn5Qikj3eU9tFsAYemIw=",
 	body:  []byte(`{"event":"order.created","id":42}`),
 }
 
