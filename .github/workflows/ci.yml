@@ -70,6 +70,9 @@ jobs:
       - name: Run repository checks
         run: make ci
 
+      - name: Enforce unit coverage floors
+        run: make coverage
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
@@ -161,6 +164,9 @@ jobs:
 
       - name: Run migration and durability integration tests
         run: make migration-check test-integration
+
+      - name: Enforce unit and integration coverage floors
+        run: make coverage
 
       - name: Deploy recovery script smoke (real Compose network derivation)
         run: ./deploy/scripts/test/smoke_compose_network.sh

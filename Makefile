@@ -9,7 +9,7 @@ LDFLAGS := -s -w \
 	-X github.com/hookship/hook-service/internal/buildinfo.Commit=$(COMMIT) \
 	-X github.com/hookship/hook-service/internal/buildinfo.Date=$(BUILD_DATE)
 
-.PHONY: all build check clean ci diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test shellcheck smoke-deploy spec-validate test test-integration test-race test-scripts validate vet
+.PHONY: all build check clean ci coverage diff-check docs-check fmt fmt-check gitleaks integration-image migration-check release-snapshot release-clean release-verify-test shellcheck smoke-deploy spec-validate test test-integration test-race test-scripts validate vet
 
 all: build
 
@@ -70,6 +70,13 @@ shellcheck:
 # the ordinary check lane alongside the Go tests.
 test-scripts:
 	./deploy/scripts/test/run.sh
+
+# coverage enforces the documented per-package coverage floors. It always checks
+# unit coverage; when TEST_DATABASE_URL (and, for the object-store path, the
+# MINIO_TEST_* variables) are set it also enforces the durability/backend
+# integration coverage floors. It fails on any regression below a floor.
+coverage:
+	./scripts/coverage.sh
 
 # smoke-deploy runs the real disposable-Postgres recovery drills. It requires
 # docker and the PostgreSQL client tools and is kept out of `check`; run it
