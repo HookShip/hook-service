@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily HookShip backup
+Documentation=https://github.com/hookship/hook-service/blob/main/docs/runbooks/backup-restore.md
+
+[Timer]
+# Run once per day with jitter so co-located VMs do not all dump at once.
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=30m
+# Catch up on a missed run (host powered off) at next boot.
+Persistent=true
+Unit=hookship-backup.service
+
+[Install]
+WantedBy=timers.target

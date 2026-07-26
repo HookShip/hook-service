@@ -24,6 +24,8 @@ deploy/hookshipd.env.example
 deploy/assignments.example.yaml
 deploy/systemd/hookshipd.service
 deploy/systemd/hookship-migrate.service
+deploy/systemd/hookship-backup.service
+deploy/systemd/hookship-backup.timer
 deploy/scripts/install.sh
 deploy/scripts/uninstall.sh
 deploy/scripts/compose-up.sh

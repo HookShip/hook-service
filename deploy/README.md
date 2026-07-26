@@ -33,12 +33,25 @@ The installer:
 - creates `/etc/hookship` (`0750`) and `/var/lib/hookship` (`0750`);
 - installs `/etc/hookship/hookshipd.env` as **mode `0600`** and
   `/etc/hookship/assignments.yaml` as `0640`, owned by `hookship`;
-- installs the binaries and the two hardened units
+- installs the binaries and the hardened units
   ([`hookship-migrate.service`](systemd/hookship-migrate.service) runs once
-  before [`hookshipd.service`](systemd/hookshipd.service));
+  before [`hookshipd.service`](systemd/hookshipd.service)), plus the opt-in
+  [`hookship-backup.service`](systemd/hookship-backup.service) and
+  [`hookship-backup.timer`](systemd/hookship-backup.timer) and the backup
+  scripts under `/usr/local/lib/hookship/`;
 - when the configuration is complete (no `REPLACE_ME` left), applies migrations,
   starts the service, and waits for `/readyz`. It refuses to start while any
   `REPLACE_ME` remains.
+
+Pass `--enable-backups` (or run
+`sudo systemctl enable --now hookship-backup.timer` later) to schedule the daily
+backup; the units are installed either way. See
+[backup and restore](../docs/runbooks/backup-restore.md).
+
+`--prefix DIR` (default `/usr/local`) is honored for every unit: the installer
+renders each unit's `ExecStart` from the selected prefix (binaries under
+`DIR/bin`, backup scripts under `DIR/lib/hookship`), so a non-default prefix is
+fully supported rather than silently pointing units at `/usr/local`.
 
 Safe teardown keeps config, state, and the database; `--purge` removes them:
 

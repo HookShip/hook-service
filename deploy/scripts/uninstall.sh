@@ -45,7 +45,7 @@ command -v systemctl >/dev/null 2>&1 || die "systemctl not found; systemd is req
 
 stop_units() {
 	local unit
-	for unit in hookshipd.service hookship-migrate.service; do
+	for unit in hookship-backup.timer hookship-backup.service hookshipd.service hookship-migrate.service; do
 		if systemctl list-unit-files "${unit}" >/dev/null 2>&1 && systemctl cat "${unit}" >/dev/null 2>&1; then
 			log "stopping and disabling ${unit}"
 			systemctl disable --now "${unit}" >/dev/null 2>&1 || true
@@ -56,7 +56,7 @@ stop_units() {
 remove_units() {
 	local removed="no"
 	local unit
-	for unit in hookshipd.service hookship-migrate.service; do
+	for unit in hookship-backup.timer hookship-backup.service hookshipd.service hookship-migrate.service; do
 		if [ -e "${UNIT_DIR}/${unit}" ]; then
 			log "removing ${UNIT_DIR}/${unit}"
 			rm -f "${UNIT_DIR}/${unit}"
@@ -65,6 +65,15 @@ remove_units() {
 	done
 	if [ "${removed}" = "yes" ]; then
 		systemctl daemon-reload || true
+	fi
+}
+
+remove_operational_scripts() {
+	local lib_dir="${PREFIX}/lib/hookship"
+	if [ -d "${lib_dir}" ]; then
+		log "removing operational scripts in ${lib_dir}"
+		rm -f "${lib_dir}/lib.sh" "${lib_dir}/backup.sh" "${lib_dir}/backup-age.sh"
+		rmdir "${lib_dir}" 2>/dev/null || true
 	fi
 }
 
@@ -105,6 +114,7 @@ main() {
 	stop_units
 	remove_units
 	remove_binaries
+	remove_operational_scripts
 	if [ "${PURGE}" = "yes" ]; then
 		purge_state
 	else

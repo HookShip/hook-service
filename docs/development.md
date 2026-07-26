@@ -57,11 +57,14 @@ Two architecture-conformance tests run in the ordinary lane
 (`internal/archtest`): an import-graph guard keeps `internal/runtime`,
 `internal/idempotency`, and `internal/capabilities` free of concrete
 backend/config imports, and a source-size ratchet caps non-generated Go and
-shell files. After the decomposition work the ratchet allowlist is **empty** —
-every production Go file is under the 450-line cap (largest is
+shell files. Every production Go file is under the 450-line cap (largest is
 `internal/backend/postgres/postgres.go` at 449), well within the ≤500-line
-budget, and orchestration functions are ≤80 lines. Add an allowlist entry only
-for a genuinely irreducible hotspot, and prefer splitting instead.
+budget, and orchestration functions are ≤80 lines, so the Go allowlist is
+**empty**. The shell allowlist carries a single deliberate ceiling for
+`deploy/scripts/install.sh` (the safety-critical single-VM installer, which
+renders the systemd units per `--prefix`); it is kept auditable as one file
+rather than split into sourced fragments. Add an allowlist entry only for a
+genuinely irreducible hotspot, and prefer splitting instead.
 
 See [testing.md](testing.md) for the three test lanes, the shared backend
 contract, and the documented coverage floors.

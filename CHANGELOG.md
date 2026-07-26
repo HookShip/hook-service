@@ -67,6 +67,10 @@ throughput, or service-level claims, and it has not been independently audited.
 - OpenMetrics `/metrics` endpoint on the operational listener, exposing the
   existing payload-free counters and gauges (namespaced `hookship_`) in the
   standard text exposition format for a Prometheus/OpenMetrics scraper.
+- Opt-in scheduled backups for the systemd deployment: a hardened
+  `hookship-backup.service` and daily `hookship-backup.timer`, installed by
+  `install.sh` (enable with `--enable-backups`) alongside the backup scripts,
+  with hermetic freshness/verification tests.
 - Pinned `golangci-lint` (v2) configuration and gate (`.golangci.yml`,
   `make lint`, wired into `make check`) layering error-handling and correctness
   linters on top of `go vet`; formatting stays owned by `gofmt`.
@@ -106,6 +110,11 @@ throughput, or service-level claims, and it has not been independently audited.
 
 ### Fixed
 
+- `deploy/scripts/install.sh --prefix` now works for every installed systemd
+  unit: the installer renders each unit's `ExecStart` from the selected prefix
+  (binaries under `<prefix>/bin`, backup scripts under `<prefix>/lib/hookship`)
+  instead of leaving them pointed at `/usr/local`. A default prefix renders
+  identically, and the rendering is covered by a hermetic test.
 - Running `api` and `worker` as separate processes on one host now fails fast
   with an actionable error when they share an operational address: the
   operational listener's address-in-use error names the required distinct

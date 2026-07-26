@@ -31,8 +31,14 @@ const (
 var goAllowlist = map[string]int{}
 
 // shellAllowlist maps a repo-relative path to its permitted maximum line count.
-// Empty today: every shell script is under the default cap.
-var shellAllowlist = map[string]int{}
+// deploy/scripts/install.sh is the single-VM installer: it renders the systemd
+// units for the selected --prefix, installs the hardened service/timer units and
+// the operational backup scripts, and drives migrate/start/readiness. Splitting
+// a safety-critical installer into sourced fragments would hurt auditability, so
+// it carries a deliberate ceiling; lower it if the file shrinks.
+var shellAllowlist = map[string]int{
+	"deploy/scripts/install.sh": 268,
+}
 
 func TestSourceSizeRatchet(t *testing.T) {
 	root := moduleRoot(t)

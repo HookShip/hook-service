@@ -43,6 +43,32 @@ produces backup-age evidence:
 deploy/scripts/backup-age.sh --dir /var/lib/hookship/backups --max-age-hours 26
 ```
 
+### Scheduled backups (systemd timer)
+
+The systemd deployment ships an opt-in daily backup timer. The
+`hookship-backup.service` unit runs `backup.sh` under the same hardened sandbox
+as the main service (it may only read `/etc/hookship` and write
+`/var/lib/hookship`), and `hookship-backup.timer` triggers it once a day with
+jitter and catch-up on a missed run.
+
+`deploy/scripts/install.sh` always installs both units (and the backup scripts
+to `/usr/local/lib/hookship/`), but leaves the timer disabled unless you opt in:
+
+```sh
+# Enable at install time:
+sudo deploy/scripts/install.sh --enable-backups
+
+# Or enable later:
+sudo systemctl enable --now hookship-backup.timer
+systemctl list-timers hookship-backup.timer   # confirm the next run
+sudo systemctl start hookship-backup.service   # run one backup now
+```
+
+Backups land in `/var/lib/hookship/backups`. Pair the timer with a periodic
+`backup-age.sh` check (its own cron/timer or your monitoring) to alert when the
+newest backup goes stale. Adjust the schedule by editing the `OnCalendar` line
+in `/etc/systemd/system/hookship-backup.timer` (then `systemctl daemon-reload`).
+
 ## Restore
 
 Stop the service first so nothing writes during the restore. `pg_restore` runs

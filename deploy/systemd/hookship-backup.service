@@ -1,0 +1,48 @@
+[Unit]
+Description=HookShip consistent backup (PostgreSQL dump + object-store mirror)
+Documentation=https://github.com/hookship/hook-service/blob/main/docs/runbooks/backup-restore.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hookship
+Group=hookship
+# The DSN and object-store settings are read from the deployment env file.
+EnvironmentFile=/etc/hookship/hookshipd.env
+# The operational scripts are installed alongside lib.sh by deploy/scripts/install.sh.
+ExecStart=/usr/local/lib/hookship/backup.sh --output /var/lib/hookship/backups
+
+# Writable state (the backups tree) lives only here; StateDirectory creates and
+# chowns it, and ReadWritePaths grants write under ProtectSystem=strict.
+StateDirectory=hookship
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/hookship
+
+# Hardening. This mirrors hookshipd.service: the backup job needs only to read
+# /etc/hookship, write /var/lib/hookship, and reach PostgreSQL (and optionally
+# the object store) over the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/hookship
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077

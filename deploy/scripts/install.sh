@@ -8,12 +8,13 @@
 # for readiness. It is idempotent and safe to re-run.
 #
 # Usage:
-#   sudo deploy/scripts/install.sh [--bindir DIR] [--prefix DIR] [--no-start]
+#   sudo deploy/scripts/install.sh [--bindir DIR] [--prefix DIR] [--no-start] [--enable-backups]
 #
 #   --bindir DIR   Directory containing prebuilt hookshipd/hookshipctl binaries.
 #                  Default: <repo>/bin, else build with `make build` if Go exists.
 #   --prefix DIR   Install prefix for binaries (default /usr/local -> /usr/local/bin).
 #   --no-start     Install everything but do not migrate/start, even if configured.
+#   --enable-backups  Enable the daily hookship-backup.timer (units install regardless).
 #
 # This script targets a Linux host with systemd. It never publishes anything,
 # never invents a registry or domain, and never writes a credential to source
@@ -31,6 +32,7 @@ ASSIGN_FILE="${ETC_DIR}/assignments.yaml"
 PREFIX="/usr/local"
 BINDIR=""
 START="auto"
+ENABLE_BACKUPS="no"
 
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -44,12 +46,14 @@ while [ "$#" -gt 0 ]; do
 	--bindir) BINDIR="${2:?--bindir requires a value}"; shift 2 ;;
 	--prefix) PREFIX="${2:?--prefix requires a value}"; shift 2 ;;
 	--no-start) START="no"; shift ;;
-	-h | --help) sed -n '2,26p' "$0"; exit 0 ;;
+	--enable-backups) ENABLE_BACKUPS="yes"; shift ;;
+	-h | --help) sed -n '2,30p' "$0"; exit 0 ;;
 	*) die "unknown argument: $1" ;;
 	esac
 done
 
 BIN_INSTALL_DIR="${PREFIX}/bin"
+LIB_DIR="${PREFIX}/lib/hookship"
 
 require_root() {
 	[ "$(id -u)" -eq 0 ] || die "must run as root (use sudo)"
@@ -117,19 +121,17 @@ install_directories() {
 }
 
 install_config() {
-	if [ -e "${ENV_FILE}" ]; then
-		log "keeping existing ${ENV_FILE}"
+	install_from_example "${ENV_FILE}" 0600 hookshipd.env.example
+	install_from_example "${ASSIGN_FILE}" 0640 assignments.example.yaml
+}
+
+install_from_example() {
+	local dest="$1" mode="$2" src="$3"
+	if [ -e "${dest}" ]; then
+		log "keeping existing ${dest}"
 	else
-		log "installing ${ENV_FILE} (mode 0600) from example"
-		install -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0600 \
-			"${DEPLOY_DIR}/hookshipd.env.example" "${ENV_FILE}"
-	fi
-	if [ -e "${ASSIGN_FILE}" ]; then
-		log "keeping existing ${ASSIGN_FILE}"
-	else
-		log "installing ${ASSIGN_FILE} (mode 0640) from example"
-		install -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0640 \
-			"${DEPLOY_DIR}/assignments.example.yaml" "${ASSIGN_FILE}"
+		log "installing ${dest} (mode ${mode}) from example"
+		install -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m "${mode}" "${DEPLOY_DIR}/${src}" "${dest}"
 	fi
 }
 
@@ -140,11 +142,36 @@ install_binaries() {
 	install -o root -g root -m 0755 "${BINDIR}/hookshipctl" "${BIN_INSTALL_DIR}/hookshipctl"
 }
 
+# render_unit_to rewrites a systemd unit's default /usr/local ExecStart paths to
+# the selected install prefix and prints it to stdout. It is pure (no I/O beyond
+# reading the source) so it is unit-testable without root. When PREFIX is the
+# default the substitution is a no-op, so every install renders through one path.
+render_unit_to() {
+	sed -e "s|/usr/local/bin|${BIN_INSTALL_DIR}|g" \
+		-e "s|/usr/local/lib/hookship|${LIB_DIR}|g" "$1"
+}
+
 install_units() {
-	log "installing systemd units to ${UNIT_DIR}"
-	install -o root -g root -m 0644 "${DEPLOY_DIR}/systemd/hookship-migrate.service" "${UNIT_DIR}/hookship-migrate.service"
-	install -o root -g root -m 0644 "${DEPLOY_DIR}/systemd/hookshipd.service" "${UNIT_DIR}/hookshipd.service"
+	log "installing systemd units to ${UNIT_DIR} (prefix ${PREFIX})"
+	local unit tmp
+	for unit in hookship-migrate.service hookshipd.service hookship-backup.service hookship-backup.timer; do
+		tmp="$(mktemp)"
+		render_unit_to "${DEPLOY_DIR}/systemd/${unit}" >"${tmp}"
+		install -o root -g root -m 0644 "${tmp}" "${UNIT_DIR}/${unit}"
+		rm -f "${tmp}"
+	done
 	systemctl daemon-reload
+}
+
+# install_operational_scripts installs the backup helpers (and the lib.sh they
+# source) to a stable path so hookship-backup.service can run without a checkout.
+install_operational_scripts() {
+	local name
+	log "installing operational scripts to ${LIB_DIR}"
+	install -d -m 0755 "${LIB_DIR}"
+	for name in lib.sh backup.sh backup-age.sh; do
+		install -o root -g root -m 0755 "${DEPLOY_DIR}/scripts/${name}" "${LIB_DIR}/${name}"
+	done
 }
 
 is_configured() {
@@ -207,7 +234,12 @@ main() {
 	install_directories
 	install_config
 	install_binaries
+	install_operational_scripts
 	install_units
+	if [ "${ENABLE_BACKUPS}" = "yes" ]; then
+		log "enabling the daily hookship-backup.timer"
+		systemctl enable --now hookship-backup.timer
+	fi
 
 	if [ "${START}" = "no" ]; then
 		log "installed; not starting (--no-start)"
@@ -228,4 +260,9 @@ EOF
 	log "done"
 }
 
-main "$@"
+# Allow the hermetic tests to source this script for its pure helpers (e.g.
+# render_unit_to) without executing the installer. A normal invocation leaves
+# HOOKSHIP_INSTALL_SOURCE_ONLY unset and runs main.
+if [ "${HOOKSHIP_INSTALL_SOURCE_ONLY:-0}" = "0" ]; then
+	main "$@"
+fi

@@ -97,4 +97,8 @@ ssh -N -L 8080:127.0.0.1:8080 operator@vm
 Backup, restore, upgrade, schema-compatible rollback, key rotation, and recovery
 are covered by the [operational runbooks](runbooks/README.md). Always take a
 [backup](runbooks/backup-restore.md) before an [upgrade](runbooks/upgrade-rollback.md),
-and periodically run the [restore drill](runbooks/restore-drill.md).
+and periodically run the [restore drill](runbooks/restore-drill.md). To run
+backups automatically, enable the opt-in daily timer with
+`sudo deploy/scripts/install.sh --enable-backups` (or
+`sudo systemctl enable --now hookship-backup.timer`); see
+[backup and restore](runbooks/backup-restore.md).
