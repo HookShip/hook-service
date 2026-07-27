@@ -66,10 +66,22 @@ assert_contains "${installer}" "install_operational_scripts" "installer installs
 # --- optional real systemd validation (only when available) ---------------
 
 if command -v systemd-analyze >/dev/null 2>&1; then
+	verify_dir="${work}/systemd"
+	verify_script="${verify_dir}/backup.sh"
+	mkdir -p "${verify_dir}"
+	printf '#!/usr/bin/env bash\nexit 0\n' >"${verify_script}"
+	chmod +x "${verify_script}"
+	sed \
+		"s#/usr/local/lib/hookship/backup.sh#${verify_script}#" \
+		"${DEPLOY_DIR}/systemd/hookship-backup.service" \
+		>"${verify_dir}/hookship-backup.service"
+	cp \
+		"${DEPLOY_DIR}/systemd/hookship-backup.timer" \
+		"${verify_dir}/hookship-backup.timer"
 	rc=0
 	systemd-analyze verify \
-		"${DEPLOY_DIR}/systemd/hookship-backup.service" \
-		"${DEPLOY_DIR}/systemd/hookship-backup.timer" >/dev/null 2>&1 || rc=$?
+		"${verify_dir}/hookship-backup.service" \
+		"${verify_dir}/hookship-backup.timer" >/dev/null 2>&1 || rc=$?
 	assert_status 0 "${rc}" "systemd-analyze verify accepts the backup units"
 fi
 
