@@ -101,6 +101,14 @@ barrier in every durable profile.
 The image does not bake in a fixed-port healthcheck. Deployments that override
 the listener must define a matching probe.
 
+## Early evaluation
+
+The [delivery-service evaluation guide](docs/evaluation.md) provides a safe,
+source-based path through an ephemeral memory delivery and a durable
+PostgreSQL-backed retry scenario. Start with the organization-wide
+[early tester program](https://github.com/HookShip/.github/blob/main/TESTING.md)
+to choose the correct HookShip track and submit sanitized feedback.
+
 ## Deploy to a single VM
 
 The [`deploy/`](deploy/README.md) directory packages the service for one Linux
@@ -158,6 +166,7 @@ See [`docs/backends.md`](docs/backends.md), [`docs/durability.md`](docs/durabili
 - [Releasing](docs/releasing.md)
 - [Architecture decision records](docs/adr/)
 - [Development](docs/development.md)
+- [Early evaluation](docs/evaluation.md)
 - [Provenance](docs/provenance.md)
 - [Changelog](CHANGELOG.md), [Roadmap](ROADMAP.md), [Governance](GOVERNANCE.md)
 - [Security policy](SECURITY.md)

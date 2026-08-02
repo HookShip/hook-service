@@ -43,6 +43,7 @@ docs/compatibility-matrix.md
 docs/configuration.md
 docs/deployment.md
 docs/durability.md
+docs/evaluation.md
 docs/development.md
 docs/examples/durability.env.example
 docs/operations.md
