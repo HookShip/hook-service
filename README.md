@@ -174,7 +174,7 @@ See [`docs/backends.md`](docs/backends.md), [`docs/durability.md`](docs/durabili
 
 ## Related repositories
 
-HookShip spans four repositories. Work belongs in the one that owns the affected
+HookShip spans five repositories. Work belongs in the one that owns the affected
 behavior; this repository owns the delivery data plane, protocol, and deployment
 surface. The authoritative topology is the organization
 [repository placement policy](https://github.com/HookShip/.github/blob/main/REPOSITORY_PLACEMENT.md)
@@ -189,6 +189,9 @@ and [source-of-truth rules](https://github.com/HookShip/.github/blob/main/SOURCE
   repository consumes.
 - `HookShip/platform` — the private managed control plane. It consumes this data
   plane's protocol and never holds a competing public specification.
+- [`HookShip/website`](https://github.com/HookShip/website) — public web
+  presentation and organization navigation. Delivery behavior remains
+  authoritative in this repository.
 
 ## License
 
